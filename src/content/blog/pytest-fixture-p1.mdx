@@ -9,6 +9,7 @@ tags: [pytest, testing]
 ---
 
 import Figure from "@/components/Figure.astro"
+import DetailsSummary from "@/components/DetailsSummary.astro"
 import dataAccessArch from "@/assets/pytest-fixture/pepe.png"
 
 # Preface
@@ -68,55 +69,55 @@ Decorator `@pytest.fixture` **chỉ gắn marker lên function**, không wrap ha
 
 Pytest sau đó đọc marker này để tạo ra một **`FixtureDef`** – blueprint mô tả fixture:
 
-- Code:
+<DetailsSummary title="Code">
     
-    ```jsx
-    @final
-    class FixtureDef(Generic[FixtureValue]):
-        """A container for a fixture definition.
-    
-        Note: At this time, only explicitly documented fields and methods are
-        considered public stable API.
-        """
-    
-        def __init__(
-            self,
-            config: Config,
-            baseid: str | None,
-            argname: str,
-            func: _FixtureFunc[FixtureValue],
-            scope: Scope | _ScopeName | Callable[[str, Config], _ScopeName] | None,
-            params: Sequence[object] | None,
-            ids: tuple[object | None, ...] | Callable[[Any], object | None] | None = None,
-            *,
-            _ispytest: bool = False,
-            # only used in a deprecationwarning msg, can be removed in pytest9
-            _autouse: bool = False,
-        ) -> None:
-            check_ispytest(_ispytest)
-            # The "base" node ID for the fixture.
-            #
-            # This is a node ID prefix. A fixture is only available to a node (e.g.
-            # a `Function` item) if the fixture's baseid is a nodeid of a parent of
-            # node.
-            #
-            # For a fixture found in a Collector's object (e.g. a `Module`s module,
-            # a `Class`'s class), the baseid is the Collector's nodeid.
-            #
-            # For a fixture found in a conftest plugin, the baseid is the conftest's
-            # directory path relative to the rootdir.
-            #
-            # For other plugins, the baseid is the empty string (always matches).
-            self.baseid: Final = baseid or ""
-            # Whether the fixture was found from a node or a conftest in the
-            # collection tree. Will be false for fixtures defined in non-conftest
-            # plugins.
-            self.has_location: Final = baseid is not None
-            # The fixture factory function.
-            self.func: Final = func
-            # The name by which the fixture may be requested.
-            self.argname: Final = argname
-            if scope is None:
+```python
+@final
+class FixtureDef(Generic[FixtureValue]):
+    """A container for a fixture definition.
+
+    Note: At this time, only explicitly documented fields and methods are
+    considered public stable API.
+    """
+
+    def __init__(
+        self,
+        config: Config,
+        baseid: str | None,
+        argname: str,
+        func: _FixtureFunc[FixtureValue],
+        scope: Scope | _ScopeName | Callable[[str, Config], _ScopeName] | None,
+        params: Sequence[object] | None,
+        ids: tuple[object | None, ...] | Callable[[Any], object | None] | None = None,
+        *,
+        _ispytest: bool = False,
+        # only used in a deprecationwarning msg, can be removed in pytest9
+        _autouse: bool = False,
+    ) -> None:
+        check_ispytest(_ispytest)
+        # The "base" node ID for the fixture.
+        #
+        # This is a node ID prefix. A fixture is only available to a node (e.g.
+        # a `Function` item) if the fixture's baseid is a nodeid of a parent of
+        # node.
+        #
+        # For a fixture found in a Collector's object (e.g. a `Module`s module,
+        # a `Class`'s class), the baseid is the Collector's nodeid.
+        #
+        # For a fixture found in a conftest plugin, the baseid is the conftest's
+        # directory path relative to the rootdir.
+        #
+        # For other plugins, the baseid is the empty string (always matches).
+        self.baseid: Final = baseid or ""
+        # Whether the fixture was found from a node or a conftest in the
+        # collection tree. Will be false for fixtures defined in non-conftest
+        # plugins.
+        self.has_location: Final = baseid is not None
+        # The fixture factory function.
+        self.func: Final = func
+        # The name by which the fixture may be requested.
+        self.argname: Final = argname
+        if scope is None:
                 scope = Scope.Function
             elif callable(scope):
                 scope = _eval_scope_callable(scope, argname, config)
@@ -237,7 +238,8 @@ Pytest sau đó đọc marker này để tạo ra một **`FixtureDef`** – blu
         def __repr__(self) -> str:
             return f"<FixtureDef argname={self.argname!r} scope={self.scope!r} baseid={self.baseid!r}>"
     ```
-    
+
+</DetailsSummary>
 
 ⇒ `FixtureDef` **không phải fixture instance,** mà là khuôn mẫu để pytest:
 
@@ -256,10 +258,11 @@ Vậy nếu có nhiều fixture cùng tên thì sao nhỉ ? Ye, đó là lý do 
 - Index fixture theo tên
 - Áp dụng **override rule**
 - Cung cấp API để resolve fixture khi test chạy
-- Code
+
+<DetailsSummary title="Code">
     
-    ```python
-    class FixtureManager:
+```python
+class FixtureManager:
         """pytest fixture definitions and information is stored and managed
         from this class.
     
@@ -640,7 +643,9 @@ Vậy nếu có nhiều fixture cùng tên thì sao nhỉ ? Ye, đó là lý do 
                     yield fixturedef
     
     ```
-    
+
+</DetailsSummary>
+
 
 Bên trong `FixtureManager` có mapping quan trọng nhất:
 
