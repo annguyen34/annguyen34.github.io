@@ -21,9 +21,7 @@ jobs:
         with:
           node-version: 22.6
       - name: Install dependencies
-        run: yarn install
-      - name: Install sharp manually
-        run: yarn add sharp --ignore-engines
+        run: npm install
       - name: Build and upload your site
         uses: withastro/action@v2
 
