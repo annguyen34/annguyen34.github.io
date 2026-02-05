@@ -1,0 +1,313 @@
+---
+title: SDET là ai, làm gì và vì sao Automation Test hay “đỏ” dù code không đổi? ?
+summary: Cùng tìm hiểu về 1 ngày của SDET thui nào.
+postLayout: column
+date: '2026-02-05'
+draft: true
+cover: '@/assets/pytest-fixture/pepe.png'
+tags: [testing]
+---
+
+
+Nếu bạn từng:
+
+- Viết automation test rất nhiều
+- Nhưng CI cứ đỏ liên tục
+- Và mỗi lần test fail là… **cầu trời không phải bug thật (và nó là bug thật zzz)**
+
+Hehe chào mừng bạn đến với thế giới của **SDET**.
+
+---
+
+## SDET là ai và khác gì với QA / Tester?
+
+### Vì sao lại sinh ra SDET?
+
+Ngày xưa:
+
+- Test chủ yếu là **manual**
+- Code ít, release chậm
+- Tester test xong → dev sửa → test lại
+
+Ngày nay:
+
+- Code deploy mỗi ngày
+- CI/CD chạy liên tục
+- Không thể “đợi tester test xong”
+
+**Test phải trở thành một phần của development**, không phải bước sau cùng.
+
+Từ đó, **SDET (Software Development Engineer in Test)** xuất hiện.
+
+---
+
+### Khác nhau lớn nhất: *Mindset*
+
+| QA / Tester | SDET |
+| --- | --- |
+| “Tính năng này có bug không?” | “Làm sao để bug này không quay lại?” |
+| Viết test case | Viết code test |
+| Focus quy trình | Focus hệ thống |
+| Test sản phẩm | Xây *hệ thống test* |
+
+SDET **không chỉ test mà còn**
+
+- Thiết kế test strategy
+- Quyết định test ở level nào (Unit / API / UI)
+- Viết framework test
+- Tích hợp test vào CI/CD
+
+Một câu mô tả rất đúng mình từng nghe qua:
+
+> SDET khá giống Developer, nhưng sản phẩm họ viết ra là test.
+> 
+
+---
+
+### Một hiểu lầm phổ biến
+
+SDET = Tester + biết code
+
+Học Selenium là thành SDET
+
+**Sai. Không có chuyện dễ ăn vậy đâu =))))** 
+
+SDET cần:
+
+- Tư duy lập trình
+- Hiểu architecture
+- Biết trade-off giữa các loại test
+- Quan tâm đến maintainability, performance, reliability
+
+Nếu bạn:
+
+- Ghét test case dài dòng
+- Thích debug nguyên nhân gốc rễ
+- Quan tâm “vì sao hệ thống này dễ bug”
+
+→ Bạn đang có tư duy SDET rồi đó.
+
+---
+
+## Một ngày làm việc của SDET *thực sự* diễn ra thế nào?
+
+Không phải lúc nào cũng ngồi viết test mới đâu
+
+Sự thật là **viết test mới chỉ chiếm một phần nhỏ, như muối bỏ biển vậy**.
+
+---
+
+### Buổi sáng: CI đỏ
+
+Việc đầu tiên:
+
+- Mở CI dashboard/noti
+- Thấy: ❌❌❌
+
+Câu hỏi đầu tiên **không phải**:
+
+> “Ai merge code làm fail test?”
+> 
+
+Mà là:
+
+> “Rồi đó, cái gì đây? Fail này có đáng tin không?”
+> 
+
+SDET sẽ:
+
+- Xem log
+- Xem screenshot / video
+- Check timing
+- So sánh với lần chạy trước
+
+Và sẽ có các trường hợp sau:
+
+- Ye nó là bug thật F 🐞.
+- À flaky test, just chill, có gì lên PR fix sau.
+- Environment Config: “ À hum qua quên chỉnh lại setting, chỉnh lại phát rùi rerun”
+
+---
+
+### Giữa ngày: Làm việc với Dev
+
+SDET làm việc với Dev **khá nhiều**.
+
+Ví dụ:
+
+- Feature mới → bàn xem test ở đâu hợp lý
+- Logic phức tạp → đề xuất test ở API thay vì UI
+- Code khó test → góp ý
+
+SDET thường hỏi:
+
+- “Case này test UI có cần không?”
+- “Chỗ này mock được không?”
+- “Nếu deploy fail thì test báo sớm được không?”
+
+SDET **ảnh hưởng trực tiếp đến cách dev viết code. Ví dụ nhé, SDET thường yêu cầu Mobile Dev gắn id vào element vì trên iOS nếu không dựa vào id để “bắt” locator rất dễ xảy ra flaky test ⇒ Lại tốn thời gian ngồi check rồi manual test =)))** 
+
+---
+
+### Buổi chiều: flaky test – ye sir
+
+Thực tế:
+
+- Test không fail vì code
+- Mà fail vì **test viết chưa đủ tốt**
+
+SDET sẽ:
+
+- Refactor test cũ
+- Tách logic chung
+- Chuẩn hoá wait / retry
+- Làm test chạy nhanh và ổn định hơn
+
+Có những ngày:
+
+- Không viết thêm test nào
+- Nhưng fix được 5 flaky test
+
+Và đó là **giá trị rất lớn (đó là tui nghĩ, còn sếp nghĩ gì tui chưa biết)**.
+
+---
+
+## Vì sao automation test fail dù code không đổi?
+
+Dưới đây sẽ là liệt kê vài trường hợp điển hình mình hay gặp
+
+---
+
+### 1. Timing & async (nguyên nhân số 1)
+
+Ví dụ:
+
+- Page load chậm hơn
+- API trả về trễ
+- Background job chưa xong
+
+Test:
+
+```
+Expected: element visible
+Actual: element not found
+
+Expected: Database ready sau 40s
+Actual: Database chưa ready sau 40s ...
+```
+
+❌ Code không đổi
+
+❌ Nhưng test fail
+
+Nguyên nhân:
+
+- Dùng sleep
+- Hard code wait (cũng tương tự như sleep)
+- Flow async có vấn đề
+
+Và What should you do:
+
+- Explicit wait đúng điều kiện
+- Polling thay vì sleep
+- Test chờ **state**, không chờ **thời gian**
+
+---
+
+### 2. Environment không ổn định
+
+- Server staging chậm
+- Data dùng chung
+- Test chạy song song
+
+Test hôm nay xanh
+
+Mai đỏ
+
+Mốt lại xanh 🤡
+
+How to fix:
+
+- Test data độc lập
+- Cleanup sau mỗi test
+- Không phụ thuộc state bên ngoài
+
+---
+
+### 3. Test quá “mong manh”
+
+Ví dụ:
+
+- Assert text UI
+- Assert thứ tự element
+- Assert chi tiết không cần thiết
+
+UI đổi nhẹ → test fail hàng loạt
+
+Nguyên tắc:
+
+> Test behavior, không test implementation.
+> 
+
+Nên ưu tiên:
+
+- API test
+- Integration test
+- UI test chỉ cho critical flow
+
+---
+
+### 4. Có bug trong test code
+
+Sự thật phũ phàng:
+
+> Test code cũng là code.
+> 
+
+Nên là sẽ không né được
+
+- Copy-paste
+- Hard-code
+- Logic sai
+- Và Vibe coding….
+
+Nhưng vì:
+
+- Không ai review test kỹ
+- Test fail thường bị “retry cho qua”
+
+→ Bug trong test tồn tại rất lâu.
+
+SDET nên treat test code như production code:
+
+- Review
+- Refactor
+- Clean
+- Và quan trọng phải suy nghĩ sao cho dễ Maintain (Lỡ đâu nay mai không còn ngồi đó thì người khác đọc còn hiểu mình đang code gì)
+
+---
+
+## Điều quan trọng nhất của SDET
+
+Không phải tool.
+
+Không phải framework.
+
+Mà là **niềm tin**.
+
+> Khi test fail, team có tin kết quả đó không?
+> 
+
+Nếu:
+
+- Test fail mà ai cũng nghi ngờ
+- Test bị ignore
+- CI đỏ nhưng vẫn deploy
+
+⇒ Automation test **mất ý nghĩa**. Lúc này có send test report cũng không có ích gì đâu =)))
+
+SDET tồn tại để:
+
+- Test đáng tin (Trust me bro)
+- Fail có lý do (Do Dev không phải do mình :v)
+- Team dám dựa vào automation test để đi nhanh
