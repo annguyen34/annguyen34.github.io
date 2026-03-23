@@ -20,3 +20,8 @@ pnpm-debug.log*
 # macOS-specific files
 .DS_Store
 .idea
+
+# ai-devkit
+.ai-devkit.json
+docs/ai/*
+.github/prompts/*
