@@ -1,5 +1,5 @@
 ---
-title: SDET là ai, làm gì và vì sao Automation Test hay “đỏ” dù code không đổi? ?
+title: SDET là ai, làm gì và 1 ngày làm việc của SDET như thế nào?
 summary: Cùng tìm hiểu về 1 ngày của SDET thui nào.
 postLayout: column
 date: '2026-02-05'
@@ -19,9 +19,9 @@ Hehe chào mừng bạn đến với thế giới của **SDET**.
 
 ---
 
-## SDET là ai và khác gì với QA / Tester?
+## Who is SDET? (SDET là ai?)
 
-### Vì sao lại sinh ra SDET?
+### Vì sao vai trò SDET ra đời?
 
 Ngày xưa:
 
@@ -41,21 +41,40 @@ Từ đó, **SDET (Software Development Engineer in Test)** xuất hiện.
 
 ---
 
-### Khác nhau lớn nhất: *Mindset*
+### So sánh QA / QC / SDET
 
-| QA / Tester | SDET |
-| --- | --- |
-| “Tính năng này có bug không?” | “Làm sao để bug này không quay lại?” |
-| Viết test case | Viết code test |
-| Focus quy trình | Focus hệ thống |
-| Test sản phẩm | Xây *hệ thống test* |
+| Vai trò | Focus chính | Tính chất công việc | Hoạt động tiêu biểu |
+| --- | --- | --- | --- |
+| QA (Quality Assurance) | **Quy trình** để ngăn lỗi từ sớm | Chủ động, phòng ngừa lỗi trước khi code xong | Lập test plan, định nghĩa strategy, chuẩn hoá quy trình, thiết kế test case, phối hợp team test |
+| QC (Quality Control) | **Sản phẩm** để phát hiện lỗi sau khi build | Phản ứng, kiểm tra đầu ra có đạt yêu cầu không | Thực thi test case, log bug, verify bug fix, regression test |
+| SDET | **Automation + tooling** bằng tư duy dev | Chủ động xây hệ thống để test nhanh, ổn định, scale được | Xây framework automation, API/performance test, tích hợp CI/CD, viết tooling, có thể góp code product |
 
-SDET **không chỉ test mà còn**
+Nếu nói ngắn gọn:
 
-- Thiết kế test strategy
-- Quyết định test ở level nào (Unit / API / UI)
-- Viết framework test
-- Tích hợp test vào CI/CD
+- **QA**: làm đúng quy trình để giảm lỗi ngay từ đầu.
+- **QC**: chạy test để bắt lỗi trên sản phẩm đã làm xong.
+- **SDET**: viết code để việc test trở nên tự động, đáng tin và chạy được liên tục.
+
+### Roles & Responsibilities của SDET
+
+**S D E T = Software Development Engineer in Test**
+
+Vai trò SDET là cầu nối giữa các vai trò trong team: Dev, QA/QC, BA, Ops.
+
+SDET thường chịu trách nhiệm:
+
+- Hiểu software design và ngôn ngữ lập trình mà product đang dùng.
+- Thiết kế và phát triển quy trình test, automation framework, test architecture.
+- Nắm và áp dụng SDLC + STLC trong toàn bộ vòng đời phát triển.
+- Build, deploy, run ứng dụng để chủ động kiểm thử trong môi trường gần production.
+- Thiết kế test strategy và quyết định test level phù hợp (Unit / API / Integration / UI).
+- Tích hợp test vào CI/CD để phát hiện lỗi sớm và giảm rủi ro release.
+- Thực hiện bug reporting rõ ràng, giao tiếp tốt với team để xử lý nhanh.
+- Sử dụng DevOps và monitoring tools/process để theo dõi chất lượng sau release.
+- Có kiến thức về functional và non-functional testing theo nhu cầu dự án.
+
+Tóm lại: SDET không chỉ “viết test”, mà xây cả hệ sinh thái test để team đi nhanh nhưng vẫn an toàn.
+
 
 Một câu mô tả rất đúng mình từng nghe qua:
 
@@ -145,8 +164,7 @@ SDET thường hỏi:
 - “Chỗ này mock được không?”
 - “Nếu deploy fail thì test báo sớm được không?”
 
-SDET **ảnh hưởng trực tiếp đến cách dev viết code. Ví dụ nhé, SDET thường yêu cầu Mobile Dev gắn id vào element vì trên iOS nếu không dựa vào id để “bắt” locator rất dễ xảy ra flaky test ⇒ Lại tốn thời gian ngồi check rồi manual test =)))** 
-
+SDET **ảnh hưởng trực tiếp đến cách dev viết code. 
 ---
 
 ### Buổi chiều: flaky test – ye sir
