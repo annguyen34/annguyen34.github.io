@@ -1,0 +1,97 @@
+---
+title: 'Playwright Handbook — Chapter 4: Playwright Architecture'
+summary: Kiến trúc ba tầng, Browser/Context/Page, cơ chế auto-wait và network interception trong Playwright.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 4** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+## 1. Kiến trúc ba tầng
+
+Khi bạn chạy một test, có ba tầng đang phối hợp:
+
+1. **Code test của bạn** chạy trong **Node.js**.
+2. **Playwright** điều khiển trình duyệt thông qua giao thức kiểu DevTools Protocol.
+3. **Trình duyệt** chạy trong **process riêng**, tách biệt với code test.
+
+Vì sao điều này quan trọng? Vì code test và trình duyệt sống ở hai process khác nhau, mọi lệnh đi từ test sang trình duyệt đều phải qua một "đường truyền" — và đó chính là lý do **mọi API đều bất đồng bộ (async)** (phải `await`). Bạn gửi lệnh "click nút này", chờ trình duyệt làm xong và báo lại, rồi mới chạy tiếp.
+
+## 2. Browser, Context và Page
+
+Đây là ba khái niệm phân tầng quan trọng nhất:
+
+```ts
+// Browser — khởi chạy nguyên một trình duyệt
+const browser = await chromium.launch({ headless: false });
+```
+
+`chromium.launch()` mở một instance trình duyệt. `headless: false` nghĩa là **hiện cửa sổ trình duyệt ra** để bạn nhìn thấy (mặc định là `true` — chạy ngầm, không UI, nhanh hơn). Một Browser khá "nặng", nên ta hạn chế tạo nhiều.
+
+```ts
+// Context — một phiên làm việc cô lập
+const context = await browser.newContext({
+  viewport: { width: 1280, height: 720 },
+  locale: 'en-US',
+});
+```
+
+**Đây là khái niệm hay nhất.** Một **BrowserContext** giống như một "profile trình duyệt riêng biệt": nó có cookie riêng, localStorage riêng, session riêng — hoàn toàn không thấy gì của context khác. Nhưng nó **nhẹ** vì chia sẻ chung tiến trình Browser. `viewport` đặt kích thước cửa sổ, `locale` đặt ngôn ngữ/định dạng vùng.
+
+```ts
+// Page — một tab
+const page = await context.newPage();
+await page.goto('https://example.com');
+```
+
+Một **Page** là một tab trong context đó. Một context có thể mở nhiều page (nhiều tab).
+
+**Mô hình lồng nhau:** `Browser` → chứa nhiều `Context` (mỗi cái cô lập) → mỗi context chứa nhiều `Page`.
+
+> **Vì sao điều này cực kỳ hữu ích:** Vì các context cô lập nhau, bạn có thể **giả lập nhiều người dùng cùng lúc trong một trình duyệt**. Ví dụ test tính năng chat: context A là người gửi, context B là người nhận, cả hai chạy song song mà không "rò" session cho nhau. Đây là nền tảng cho các kịch bản multi-user ở Chapter 9.
+
+Một điều ngầm quan trọng: fixture `page` mà bạn thấy trong `test(..., async ({ page }) => {})` thực ra được Playwright tạo ra bằng cách mở **một context mới cho mỗi test**, rồi mở một page trong đó. Nhờ vậy **mỗi test tự động cô lập** với nhau — test này không làm bẩn state của test kia.
+
+## 3. Chi tiết cơ chế Auto-Wait
+
+Như đã nói ở Chapter 1, trước **mỗi** hành động, Playwright tự đợi phần tử:
+
+- Được gắn vào DOM (attached).
+- Đang hiển thị (visible).
+- Ổn định, không còn animate (stable).
+- Nhận được sự kiện, không bị che (receives events).
+- Đang bật, không bị disabled (enabled).
+
+Cụ thể hơn về cơ chế: khi bạn gọi `.click()`, Playwright **không** click ngay. Nó chạy một vòng kiểm tra lặp lại các điều kiện trên (gọi là "actionability checks"). Chỉ khi *tất cả* điều kiện đúng, nó mới thực hiện click. Nếu trong khoảng timeout mà vẫn chưa đủ điều kiện, test mới fail với thông báo rõ điều kiện nào không thỏa.
+
+Đây chính là lý do bạn gần như không bao giờ cần `waitForTimeout`. Cái "chờ" đã được nhúng vào từng action.
+
+## 4. Network Interception (preview)
+
+Một sức mạnh lớn của Playwright là chặn và can thiệp vào request mạng:
+
+```ts
+await page.route('**/api/users', route => {
+  route.fulfill({
+    status: 200,
+    body: JSON.stringify([{ id: 1, name: 'Mock' }]),
+  });
+});
+```
+
+**Giải thích:**
+
+- `page.route('**/api/users', handler)` — đăng ký một handler cho mọi request khớp pattern `**/api/users`. Dấu `*` là **glob pattern**, khớp bất kỳ tiền tố nào — nên nó bắt cả `http://localhost:3000/api/users` lẫn `https://api.prod.com/api/users`.
+- `route => {...}` — handler nhận một object `route` đại diện cho request bị chặn. Bạn quyết định làm gì với nó.
+- `route.fulfill({...})` — **trả lời thẳng** request này bằng dữ liệu giả, request thật **không** bao giờ chạm tới server. Ở đây ta trả status 200 và một mảng JSON giả.
+- `JSON.stringify([...])` — chuyển object/array JavaScript thành chuỗi JSON, vì `body` cần là chuỗi.
+
+Tại sao điều này giá trị? Vì bạn có thể test giao diện trong **mọi tình huống dữ liệu** mà không phụ thuộc backend: danh sách rỗng, danh sách khổng lồ, lỗi 500, mạng chậm... Ta sẽ khai thác sâu ở Chapter 9 (mock thường) và Chapter 16 (mock để test resilience — giả lập server sập, mạng lag).
+
+Ngoài `fulfill` (trả giả), `route` còn có:
+
+- `route.continue()` — cho request đi tiếp bình thường (có thể sửa header/body trước khi đi).
+- `route.abort()` — hủy request (giả lập lỗi mạng).

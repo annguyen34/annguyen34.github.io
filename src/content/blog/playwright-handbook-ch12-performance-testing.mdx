@@ -1,0 +1,153 @@
+---
+title: 'Playwright Handbook — Chapter 12: Performance Testing'
+summary: Đo Core Web Vitals, thời gian load, resource timing và đặt performance budget ngay trong suite E2E.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 12** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Playwright không phải tool chuyên về performance (như Lighthouse hay k6), nhưng nó *đủ tốt* để cài vài "chốt chặn" hiệu năng ngay trong suite E2E: đo Core Web Vitals, thời gian load, tài nguyên nặng, và đặt "ngân sách hiệu năng" (performance budget) để chặn hồi quy.
+
+> **Lưu ý cách dùng:** Các phép đo dưới đây chủ yếu chạy bằng `page.evaluate(...)` - tức thực thi JavaScript **bên trong trình duyệt** để đọc Performance API của web. Hãy xem chúng như chốt chặn cảnh báo ("trang đừng chậm hơn ngưỡng X"), không phải công cụ benchmark chính xác tuyệt đối. Để đo nghiêm túc, kết hợp thêm Lighthouse CI.
+
+## 1. Core Web Vitals
+
+```ts
+test('measure Core Web Vitals', async ({ page }) => {
+  await page.goto('/');
+
+  const metrics = await page.evaluate(() => {
+    const perfEntries = performance.getEntriesByType('paint');
+    const navigation = performance.getEntriesByType('navigation')[0];
+
+    return {
+      FCP: perfEntries.find(e => e.name === 'first-contentful-paint')?.startTime,
+      LCP: performance.getEntriesByType('largest-contentful-paint')[0]?.startTime,
+      domContentLoaded: navigation?.domContentLoadedEventEnd - navigation?.domContentLoadedEventStart,
+      loadComplete: navigation?.loadEventEnd - navigation?.loadEventStart,
+    };
+  });
+
+  expect(metrics.FCP).toBeLessThan(1800);  // < 1.8s
+  expect(metrics.LCP).toBeLessThan(2500);  // < 2.5s
+});
+```
+
+**Giải thích:**
+
+- `page.evaluate(() => {...})` - chạy hàm này **trong ngữ cảnh trình duyệt**, nơi có sẵn object `performance` của web. Giá trị `return` được chuyển ngược về code test (Node.js). Đây là cầu nối giữa hai thế giới.
+- `performance.getEntriesByType('paint')` - lấy các mốc "vẽ" trang. Ta tìm `first-contentful-paint` (**FCP** - thời điểm nội dung đầu tiên hiện ra).
+- `largest-contentful-paint` - **LCP**, thời điểm phần tử nội dung lớn nhất render xong (một trong các Core Web Vitals quan trọng nhất của Google).
+- `?.` (optional chaining) - toán tử an toàn: nếu phần bên trái là `undefined` thì cả biểu thức trả `undefined` thay vì crash. Cần vì không phải lúc nào entry cũng tồn tại.
+- `domContentLoadedEventEnd - ...Start` - tính khoảng thời gian của sự kiện DOMContentLoaded.
+- Hai `expect(...).toBeLessThan(...)` ở cuối là *ngưỡng* hiệu năng: FCP dưới 1.8s, LCP dưới 2.5s (đúng mức "good" Google khuyến nghị).
+
+## 2. Thời gian load trang
+
+```ts
+test('page load performance', async ({ page }) => {
+  const startTime = Date.now();
+  await page.goto('https://example.com');
+  const loadTime = Date.now() - startTime;
+
+  console.log(`Page loaded in: ${loadTime}ms`);
+  expect(loadTime).toBeLessThan(3000);  // < 3 giây
+});
+```
+
+**Giải thích:** Cách đo thô sơ nhất: ghi thời điểm trước `goto`, ghi lại sau khi xong, lấy hiệu. `Date.now()` trả về timestamp mili-giây. Đơn giản nhưng đủ để bắt trường hợp trang chậm bất thường.
+
+## 3. Resource timing - tìm tài nguyên nặng
+
+```ts
+test('analyze resource loading', async ({ page }) => {
+  await page.goto('/');
+
+  const resources = await page.evaluate(() => {
+    return performance.getEntriesByType('resource').map(r => ({
+      name: r.name,
+      duration: r.duration,
+      size: r.transferSize,
+      type: r.initiatorType,
+    }));
+  });
+
+  const slowResources = resources.filter(r => r.duration > 1000);
+  console.log('Slow resources:', slowResources);
+
+  expect(slowResources.length).toBe(0);
+});
+```
+
+**Giải thích:**
+
+- `performance.getEntriesByType('resource')` - danh sách **mọi tài nguyên** trang tải (ảnh, script, CSS, font, API call...).
+- `.map(r => ({...}))` - biến đổi mỗi entry thành object gọn gồm tên, thời gian tải (`duration`), kích thước truyền (`transferSize`), và loại (`initiatorType`).
+- `.filter(r => r.duration > 1000)` - lọc ra tài nguyên tải **quá 1 giây**.
+- `expect(slowResources.length).toBe(0)` - khẳng định không có tài nguyên nào quá chậm. Nếu fail, log đã in sẵn danh sách thủ phạm.
+
+## 4. Hiệu năng API
+
+```ts
+test('API response time', async ({ request }) => {
+  const startTime = Date.now();
+
+  const response = await request.get('/api/users');
+
+  const responseTime = Date.now() - startTime;
+
+  console.log(`API responded in: ${responseTime}ms`);
+  expect(response.status()).toBe(200);
+  expect(responseTime).toBeLessThan(500);  // < 500ms
+});
+```
+
+Dùng `request` context (không cần trình duyệt) để đo riêng thời gian phản hồi API. Đặt ngưỡng 500ms để bắt API chậm.
+
+## 5. Performance Budget - ngân sách hiệu năng
+
+Đây là cách gom nhiều chỉ số lại thành một "ngân sách" và chặn nếu vượt:
+
+```ts
+test('performance budget', async ({ page }) => {
+  await page.goto('/');
+
+  const metrics = await page.evaluate(() => {
+    const nav = performance.getEntriesByType('navigation')[0];
+    const resources = performance.getEntriesByType('resource');
+
+    return {
+      pageLoadTime: nav?.loadEventEnd - nav?.fetchStart,
+      domContentLoaded: nav?.domContentLoadedEventEnd - nav?.fetchStart,
+      totalPageSize: resources.reduce((sum, r) => sum + r.transferSize, 0),
+      numberOfRequests: resources.length,
+    };
+  });
+
+  const budget = {
+    pageLoadTime: 3000,                // 3 giây
+    domContentLoaded: 2000,            // 2 giây
+    totalPageSize: 2 * 1024 * 1024,    // 2 MB
+    numberOfRequests: 50,              // 50 request
+  };
+
+  expect(metrics.pageLoadTime).toBeLessThan(budget.pageLoadTime);
+  expect(metrics.domContentLoaded).toBeLessThan(budget.domContentLoaded);
+  expect(metrics.totalPageSize).toBeLessThan(budget.totalPageSize);
+  expect(metrics.numberOfRequests).toBeLessThan(budget.numberOfRequests);
+});
+```
+
+**Giải thích:**
+
+- `nav.loadEventEnd - nav.fetchStart` - tổng thời gian từ lúc bắt đầu fetch tới lúc load xong hoàn toàn.
+- `resources.reduce((sum, r) => sum + r.transferSize, 0)` - đây là `reduce`: cộng dồn `transferSize` của tất cả tài nguyên để ra **tổng dung lượng trang**. Tham số `0` là giá trị khởi đầu của `sum`.
+- `numberOfRequests: resources.length` - tổng số request.
+- Object `budget` định nghĩa **ngưỡng cho từng chỉ số**. `2 * 1024 * 1024` = 2MB (viết kiểu này dễ đọc hơn `2097152`).
+- Bốn `expect(...).toBeLessThan(...)` so từng chỉ số với ngân sách. Nếu trang phình to (thêm ảnh nặng, thêm thư viện), một trong các assertion sẽ fail → bạn biết ngay trước khi nó lên production.
+
+> **Vì sao performance budget đáng làm:** Hiệu năng thường "trôi" từ từ - mỗi PR thêm một chút, không ai để ý, tới lúc nhận ra thì trang đã nặng gấp đôi. Một test budget đơn giản trong CI biến sự xuống cấp âm thầm đó thành một test fail rõ ràng, buộc team phải xử lý ngay.

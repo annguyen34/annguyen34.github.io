@@ -1,0 +1,205 @@
+---
+title: 'Playwright Handbook — Chapter 17: AI trong kiểm thử'
+summary: Dùng AI generate test, sinh dữ liệu edge-case, hỗ trợ bảo trì và cách tiếp cận thực dụng với Claude Code — kèm cảnh báo chỗ nào nên tránh.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 17** (chapter cuối) trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Đây là chapter cuối cùng của handbook (vì mình không nghĩ ra gì để viết tiếp hẹ hẹ). AI đang thay đổi cách làm QA - nhưng quanh chủ đề này có rất nhiều lời thổi phồng. Mình sẽ trình bày các kỹ thuật thật sự dùng được, kèm cảnh báo rõ ràng ở những chỗ ý tưởng nghe hay nhưng thực thi lại lợi bất cập hại.
+
+## 1. Dùng AI generate test script
+
+LLM có thể sinh test Playwright từ mô tả bằng ngôn ngữ tự nhiên. Đây là ứng dụng *thực tế và an toàn nhất* của AI trong testing.
+
+**Ví dụ prompt (đã dịch sang Tiếng Việt =))):**
+
+```text
+Sinh một test Playwright cho luồng đăng nhập ngân hàng có xác thực
+đa yếu tố (MFA). Test cần:
+1. Điều hướng tới /login
+2. Nhập số tài khoản và PIN
+3. Xử lý xác thực OTP
+4. Kiểm tra đăng nhập thành công vào dashboard
+```
+
+**Kết quả AI sinh ra:**
+
+```ts
+test('banking login with MFA', async ({ page }) => {
+  await page.goto('/login');
+
+  await page.getByLabel('Account Number').fill('123456789');
+  await page.getByLabel('PIN').fill('1234');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Chờ màn hình OTP
+  await expect(page.getByText('Enter OTP')).toBeVisible();
+
+  // Nhập OTP (thực tế sẽ lấy từ email/SMS)
+  await page.getByLabel('OTP').fill('123456');
+  await page.getByRole('button', { name: 'Verify' }).click();
+
+  await expect(page).toHaveURL('/dashboard');
+  await expect(page.getByText('Welcome')).toBeVisible();
+});
+```
+
+**Giải thích & lưu ý quan trọng:**
+
+- AI sinh được phần **khung và boilerplate** rất tốt - đúng locator user-facing (`getByLabel`, `getByRole`), đúng cấu trúc assertion.
+- Nhưng để ý dòng `await page.getByLabel('OTP').fill('123456')` - OTP `'123456'` là **giả định**. Trong thực tế OTP thay đổi mỗi lần, bạn phải lấy từ email/SMS hoặc backend test. Đây chính là **edge case và business logic** mà AI không tự biết - bạn phải tự bổ sung.
+- **Quy tắc dùng AI sinh test:** để AI lo phần khung/boilerplate, còn *bạn* review và xử lý phần dữ liệu động, edge case, và logic nghiệp vụ. Đừng commit thẳng code AI sinh mà không đọc - nó hay "bịa" locator cho phần tử không tồn tại, hoặc giả định luồng sai.
+
+## 2. Self-Healing Selector dùng AI
+
+Ý tưởng: khi selector hỏng, hỏi AI phân tích HTML của trang để tìm phần tử đúng.
+
+```ts
+// utils/aiSelfHealing.ts
+export async function aiSmartLocator(
+  page: Page,
+  primarySelector: string,
+  fallbackSelectors: string[],
+  aiContext?: string
+): Promise<Locator> {
+  // Thử selector chính
+  let element = page.locator(primarySelector);
+  if (await element.count() > 0) return element;
+
+  // Thử các selector dự phòng
+  for (const selector of fallbackSelectors) {
+    element = page.locator(selector);
+    if (await element.count() > 0) {
+      console.log(`Self-healed: ${selector}`);
+      return element;
+    }
+  }
+
+  // Cuối cùng mới nhờ AI tìm
+  if (aiContext) {
+    const aiSelector = await findElementWithAI(page, aiContext);
+    return page.locator(aiSelector);
+  }
+
+  throw new Error(`Không tìm thấy: ${primarySelector}`);
+}
+
+async function findElementWithAI(page: Page, context: string) {
+  const html = await page.content();          // lấy toàn bộ HTML trang
+  const aiSelector = await askLLM(
+    `Tìm selector phù hợp nhất cho: ${context}\n\nHTML:\n${html}`
+  );
+  return aiSelector;
+}
+```
+
+**Giải thích cấu trúc:**
+
+- Hàm thử theo bậc thang: selector chính → các fallback → *cuối cùng* mới gọi AI. AI là "phao cứu sinh" sau chót.
+- `page.content()` lấy toàn bộ HTML của trang, đưa vào prompt để AI phân tích và đề xuất selector.
+- `askLLM(...)` ở đây là một hàm trừu tượng đại diện cho lời gọi tới bất kỳ LLM nào (mình cố tình không gắn nhà cung cấp cụ thể).
+
+> **Cảnh báo nghiêm túc - đọc kỹ trước khi áp dụng:** Pattern này **nghe hấp dẫn nhưng thực thi rất có vấn đề**. Mình không khuyên dùng trong test chạy thường xuyên, vì:
+>
+> - **Chậm và tốn tiền:** mỗi lần gọi AI mất hàng giây và tốn chi phí API. Nhân với số lần locator hỏng × số test = đắt và chậm.
+> - **Không xác định (non-deterministic):** AI có thể trả selector khác nhau giữa các lần chạy → test mất tính lặp lại, vốn là yêu cầu cốt lõi của test tự động.
+> - **Che mất tín hiệu thật:** như đã nói ở Chapter 16, khi selector hỏng mà test vẫn self-healing, bạn mất đi cảnh báo rằng UI đã thay đổi.
+> - **Rủi ro bảo mật:** gửi toàn bộ HTML trang (có thể chứa dữ liệu nhạy cảm) tới dịch vụ bên ngoài.
+>
+> **Cách dùng AI cho việc này một cách lành mạnh hơn:** dùng AI **chạy test local**. Khi test fail vì selector hỏng, dùng AI để *gợi ý selector mới cho bạn sửa*, rồi commit selector đó vào code. Như vậy bạn có sự ổn định của selector tĩnh + sự hỗ trợ của AI, mà không gánh chi phí/rủi ro khi chạy.
+
+## 3. Dùng LLM sinh dữ liệu edge-case
+
+Đây lại là ứng dụng *rất tốt* của AI: sinh hàng loạt dữ liệu biên để test độ ổn định của form.
+
+(Vẫn là đã dịch sang Tiếng Việt)
+
+```ts
+// utils/aiTestData.ts
+export async function generateEdgeCases(fieldType: string): Promise<string[]> {
+  const prompt = `Sinh 20 giá trị test biên (edge case) cho trường ${fieldType}
+  trong ứng dụng ngân hàng. Bao gồm:
+  - Ký tự đặc biệt
+  - Unicode
+  - Chuỗi rất dài
+  - Thử SQL injection
+  - Thử XSS
+  - Chuỗi rỗng
+  - Khoảng trắng
+  - Null byte
+  Trả về dưới dạng mảng JSON.`;
+
+  const content = await askLLM(prompt);
+  return JSON.parse(content);
+}
+```
+
+**Dùng dữ liệu AI sinh:**
+
+```ts
+test('form handles edge cases', async ({ page }) => {
+  const edgeCases = await generateEdgeCases('account_name');
+
+  for (const testValue of edgeCases) {
+    await page.goto('/account/create');
+    await page.getByLabel('Account Name').fill(testValue);
+    await page.getByRole('button', { name: 'Submit' }).click();
+
+    // App phải hoặc chấp nhận giá trị hợp lệ, hoặc báo lỗi rõ ràng
+    const hasError = await page.getByText('Invalid').isVisible();
+    const hasSuccess = await page.getByText('Success').isVisible();
+
+    expect(hasError || hasSuccess).toBeTruthy();
+  }
+});
+```
+
+**Giải thích:**
+
+- `generateEdgeCases('account_name')` hỏi AI sinh 20 giá trị: ký tự đặc biệt, unicode, chuỗi siêu dài, payload SQL injection/XSS, chuỗi rỗng... `JSON.parse(content)` chuyển kết quả (chuỗi JSON) thành mảng JS.
+- Vòng `for...of` thử *từng* giá trị vào form.
+- `expect(hasError || hasSuccess).toBeTruthy()` - đây là kiểu assert thông minh cho fuzzing: ta không biết trước giá trị nào hợp lệ, nhưng *yêu cầu* app phải phản ứng dứt khoát - **hoặc** báo "Invalid" **hoặc** "Success". Cái app **không** được phép làm là: treo, văng lỗi 500, hay nuốt im lặng. `toBeTruthy()` đúng khi giá trị là "thật" (true).
+
+> **Vì sao đây là cách dùng AI tốt:** Sinh dữ liệu edge-case là việc tẻ nhạt, dễ thiếu sót nếu làm tay. AI sinh trong vài giây với độ phủ rộng. Và quan trọng: dữ liệu sinh ra là *dữ liệu tĩnh* - bạn có thể lưu lại, review, và đưa vào test một cách xác định. Khác hẳn với self-healing (gọi AI lúc chạy). **Lưu ý:** vẫn nên review danh sách AI sinh ra và cân nhắc lưu cố định để test có thể lặp lại.
+
+## 4. AI hỗ trợ bảo trì test
+
+Một số hướng AI có thể giúp (phần lớn vẫn đang phát triển):
+
+- **Phát hiện test flaky:** phân tích pattern qua nhiều lần chạy để chỉ ra test nào không ổn định (ví dụ "test login pass 95/100 lần") và gợi ý nguyên nhân.
+- **Sinh test từ quan sát:** một số tool theo dõi phiên test thủ công rồi sinh test tự động tương ứng.
+- **Gợi ý test case mới** dựa trên thay đổi code.
+
+Hãy xem đây là *trợ lý gợi ý*, không phải thứ thay bạn quyết định. Quyết định cuối - test gì, edge case nào quan trọng - vẫn là của kỹ sư.
+
+## 5. Cách tiếp cận thực dụng: dùng Claude Code
+
+Trong thực tế (2025–2026), cách dùng AI hiệu quả cho Playwright thường **không** phải là nhét lời gọi LLM vào trong test, mà là dùng một **coding agent như Claude Code** ở tầng phát triển:
+
+- **Sinh & refactor test:** mô tả luồng cần test bằng tiếng Việt/Anh, agent viết test Playwright với locator user-facing chuẩn, bạn review rồi commit. Code sinh ra là **tĩnh, xác định, lặp lại được** - không gọi AI lúc chạy.
+- **Sửa selector hỏng:** khi test fail, đưa lỗi + HTML cho agent, nó gợi ý locator mới *để bạn vá vào code*, thay vì tự lành lúc runtime.
+- **Đọc trace để chẩn đoán:** đưa thông tin từ Trace Viewer (Chapter 15) cho agent để phân tích nguyên nhân flaky.
+- **SKILL.md / hướng dẫn dự án:** đặt một file mô tả convention của dự án (ưu tiên `getByRole`, cấu trúc POM/fixtures...) để agent sinh test *đúng phong cách team* ngay từ đầu, thay vì code kiểu `page.click('#submit')` hời hợt.
+
+Điểm mấu chốt của hướng này: **AI nằm ở vòng phát triển, không nằm trong runtime của test.** Bạn được sức mạnh của AI mà vẫn giữ tính xác định, tốc độ, và an toàn của test tự động.
+
+## 6. Kỹ năng cho tương lai
+
+AI **không** thay thế kỹ sư QA. Nó nâng vai trò bạn từ "người viết script" lên "người thiết kế chiến lược test". Để đi cùng làn sóng này, nên rèn:
+
+- **Prompt engineering** - biết mô tả yêu cầu test rõ ràng cho AI.
+- **Tích hợp công cụ AI** - biết đưa AI vào đúng chỗ trong workflow (vòng phát triển, không phải runtime).
+- **Chiến lược test** - thiết kế cách tiếp cận tổng thể: test gì, ở tầng nào, độ phủ ra sao.
+- **Hiểu nghiệp vụ (domain knowledge)** - thứ AI không có; biết edge case nào *thật sự* quan trọng với sản phẩm.
+- **Nắm vững Playwright** - hiểu sâu framework để review và sửa code AI sinh.
+
+> **Lời kết của mình:** Đừng để mấy con số kiểu "AI sinh 80% code, giảm 70% bảo trì" làm bạn lóa mắt - đó là marketing. Sự thật điềm đạm hơn: AI là một công cụ *rất tốt* cho boilerplate, dữ liệu test, và chẩn đoán; nhưng *tư duy test* - biết kiểm tra cái gì và vì sao - vẫn là phần người làm, và đó cũng là phần đáng giá nhất của nghề này.
+
+---
+
+🎉 **Hết handbook.** Bạn đã đi qua trọn 17 chapter: từ test đầu tiên tới CI/CD sharding, từ cơ chế auto-wait tới AI trong testing. Bước tiếp theo tốt nhất không phải đọc thêm - mà là **mở một dự án, viết test thật, và quay lại tra từng chapter khi cần**. Chúc bạn viết test vui và ít flaky!

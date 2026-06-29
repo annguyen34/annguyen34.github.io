@@ -1,0 +1,138 @@
+---
+title: 'Playwright Handbook — Chapter 7: Assertions và Validations'
+summary: Cơ chế auto-retry của assertion, các matcher cấp trang/phần tử, soft assertion và tùy chỉnh timeout.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 7** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Assertion là nơi *khẳng định* ứng dụng hành xử đúng. Điểm mấu chốt của Playwright: phần lớn assertion **tự retry**. Hiểu cơ chế này rồi thì bạn sẽ không bao giờ phải viết `wait` thủ công trước khi kiểm tra nữa.
+
+## 1. Assertion tự retry - hiểu cho đúng
+
+```ts
+// Sẽ retry liên tục trong 5 giây (mặc định) cho tới khi phần tử hiện ra
+await expect(page.getByText('Success')).toBeVisible();
+```
+
+**Đây là điều quan trọng nhất chương này.** Khi bạn viết `expect(locator).toBeVisible()`, Playwright **không** kiểm tra một lần rồi thôi. Nó kiểm tra lặp đi lặp lại (poll) cho tới khi điều kiện đúng - hoặc hết timeout (mặc định ~5 giây) thì mới báo fail.
+
+Hệ quả: sau một action bất đồng bộ (ví dụ submit form rồi server trả kết quả), bạn **không cần** chèn `waitForTimeout`. Cứ assert thẳng, assertion sẽ tự đợi.
+
+> **Phân biệt rõ:** Chỉ `expect(locator)...` mới tự retry. Còn `expect(value)...` trên một giá trị thường (số, chuỗi đã lấy ra) thì **không** retry - vì giá trị đó đã "đông cứng" tại thời điểm bạn lấy. Đây là lỗi người mới hay mắc: lấy `const text = await locator.textContent()` rồi `expect(text).toBe(...)` sẽ không retry, trong khi `expect(locator).toHaveText(...)` thì có.
+
+## 2. Assertion cấp trang
+
+```ts
+await expect(page).toHaveURL('https://example.com/dashboard');
+await expect(page).toHaveURL(/dashboard/);
+await expect(page).toHaveTitle('My Dashboard');
+await expect(page).toHaveTitle(/Dashboard/);
+```
+
+Truyền chuỗi để so khớp chính xác, hoặc regex (`/.../`) để khớp một phần. Regex linh hoạt hơn khi URL có query string thay đổi.
+
+## 3. Hiển thị của phần tử
+
+```ts
+await expect(page.getByText('Welcome')).toBeVisible();
+await expect(page.getByText('Loading')).toBeHidden();
+await expect(page.getByText('Error')).not.toBeVisible();
+```
+
+- `toBeVisible()` - phần tử đang hiển thị.
+- `toBeHidden()` - phần tử ẩn (hoặc không có trong DOM).
+- `.not.toBeVisible()` - đảo ngược: khẳng định phần tử *không* hiển thị. Tiền tố `.not` có thể đặt trước hầu hết matcher.
+
+## 4. Trạng thái phần tử
+
+```ts
+await expect(page.getByRole('button')).toBeEnabled();
+await expect(page.getByRole('button')).toBeDisabled();
+await expect(page.getByLabel('Terms')).toBeChecked();
+await expect(page.getByLabel('Terms')).not.toBeChecked();
+```
+
+Kiểm tra trạng thái bật/tắt của nút, tích/bỏ tích của checkbox.
+
+## 5. Nội dung text
+
+```ts
+// Khớp chính xác
+await expect(page.getByRole('heading')).toHaveText('Welcome');
+
+// Chỉ cần chứa
+await expect(page.getByRole('paragraph')).toContainText('Playwright');
+
+// Khớp mảng (cho nhiều phần tử)
+await expect(page.getByRole('listitem')).toHaveText(['Item 1', 'Item 2']);
+```
+
+**Giải thích:**
+
+- `toHaveText('Welcome')` - text **đúng bằng** "Welcome".
+- `toContainText('Playwright')` - text **chứa** "Playwright" ở đâu đó.
+- `toHaveText(['Item 1', 'Item 2'])` - khi locator khớp **nhiều** phần tử, truyền một mảng để assert text của *từng phần tử theo thứ tự*. Ở đây nghĩa là: có đúng 2 list item, cái đầu là "Item 1", cái sau là "Item 2".
+
+## 6. Giá trị input
+
+```ts
+await expect(page.getByLabel('Email')).toHaveValue('user@example.com');
+await expect(page.getByLabel('Email')).toHaveValue(/.*@example.com/);
+```
+
+`toHaveValue` kiểm tra giá trị hiện tại trong ô input (khác `toHaveText` dùng cho nội dung hiển thị).
+
+## 7. Thuộc tính (attributes)
+
+```ts
+await expect(page.getByRole('button')).toHaveAttribute('type', 'submit');
+await expect(page.getByRole('button')).toHaveClass('btn-primary');
+await expect(page.getByRole('button')).toHaveClass(/btn-/);
+```
+
+- `toHaveAttribute('type', 'submit')` - phần tử có thuộc tính `type="submit"`.
+- `toHaveClass('btn-primary')` - class **đúng bằng** "btn-primary".
+- `toHaveClass(/btn-/)` - class **khớp regex** (chứa "btn-"). Dùng regex khi phần tử có nhiều class và bạn chỉ quan tâm một phần.
+
+## 8. Đếm
+
+```ts
+await expect(page.getByRole('listitem')).toHaveCount(5);
+await expect(page.getByRole('listitem')).toHaveCount(0);
+```
+
+`toHaveCount(5)` - assert có đúng 5 phần tử khớp. `toHaveCount(0)` - không có phần tử nào (hữu ích để khẳng định một danh sách đã trống sau khi xóa).
+
+## 9. Screenshot (visual)
+
+```ts
+await expect(page).toHaveScreenshot('homepage.png');
+await expect(page.getByRole('button')).toHaveScreenshot('button.png');
+```
+
+So sánh ảnh chụp hiện tại với ảnh "chuẩn" (baseline) đã lưu. Lần chạy đầu sẽ tạo baseline; các lần sau so với baseline đó. (Chi tiết visual testing ở Chapter 11.)
+
+## 10. Tùy chỉnh timeout
+
+```ts
+await expect(page.getByText('Slow')).toBeVisible({ timeout: 30000 });
+```
+
+Nếu phần tử cần lâu hơn mức mặc định để xuất hiện (ví dụ một báo cáo nặng), tăng `timeout` riêng cho assertion đó (30000ms = 30 giây).
+
+> **Mẹo - soft assertion:** Với các kiểm tra *không nghiêm trọng* mà bạn không muốn nó dừng cả test khi sai, dùng `expect.soft`:
+>
+> ```ts
+> await expect.soft(element).toBeVisible();
+> ```
+>
+> Soft assertion vẫn ghi nhận lỗi vào báo cáo nhưng **để test chạy tiếp**, nhờ vậy một lần chạy có thể phát hiện nhiều vấn đề thay vì dừng ngay ở lỗi đầu tiên.
+
+---
+
+**Tiếp theo:** Chapter 8 - tổ chức code với Page Object Model và Component Object Model.

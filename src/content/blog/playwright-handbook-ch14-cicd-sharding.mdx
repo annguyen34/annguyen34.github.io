@@ -1,0 +1,159 @@
+---
+title: 'Playwright Handbook — Chapter 14: CI/CD và Test Sharding'
+summary: Dựng pipeline CI với GitHub Actions, chia test ra nhiều máy bằng sharding, chiến lược song song và chạy bằng Docker.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 14** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Test chỉ thật sự có giá trị khi nó chạy **tự động** trên mỗi commit/PR. Chapter này dựng pipeline CI với GitHub Actions, rồi giải bài toán "suite chạy quá lâu" bằng **sharding** - chia test ra nhiều máy chạy song song.
+
+## 1. Workflow GitHub Actions cơ bản
+
+```yaml
+# .github/workflows/playwright.yml
+name: Playwright Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: Run tests
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+```
+
+**Giải thích từng phần:**
+
+- `on: [push, pull_request]` - workflow kích hoạt khi có push hoặc khi mở/cập nhật pull request.
+- `runs-on: ubuntu-latest` - chạy trên máy ảo Ubuntu do GitHub cấp.
+- `actions/checkout@v3` - lấy mã nguồn về máy ảo.
+- `actions/setup-node@v3` với `node-version: 18` - cài Node.js 18.
+- `npm ci` - cài dependencies. Khác `npm install`: `ci` cài đúng theo `package-lock.json` (tái lập chính xác, nhanh hơn, hợp cho CI).
+- `npx playwright install --with-deps` - tải trình duyệt **kèm các thư viện hệ thống** (`--with-deps`) mà trình duyệt cần trên Linux. Thiếu `--with-deps` là lỗi rất hay gặp khi chạy CI.
+- `npx playwright test` - chạy test.
+- Bước `upload-artifact` với `if: always()` - **luôn** upload báo cáo HTML, *kể cả khi test fail* (đó mới là lúc bạn cần báo cáo nhất). `retention-days: 30` giữ artifact 30 ngày.
+
+## 2. Sharding - chạy nghìn test trong vài phút
+
+Khi suite lớn, chạy tuần tự sẽ rất lâu. **Sharding** chia test thành nhiều phần (shard), mỗi phần chạy trên một máy ảo riêng, **song song**.
+
+Bài toán đơn giản:
+
+- 1000 test × 5 giây = 5000 giây (~83 phút) nếu chạy tuần tự.
+- Với 10 shard: 5000 ÷ 10 = 500 giây (~8.3 phút).
+- Với 20 shard: 5000 ÷ 20 = 250 giây (~4.2 phút).
+
+```yaml
+name: Playwright Tests (Sharded)
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shardTotal: [10]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: Run tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+        run: npx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.shardIndex }}
+          path: playwright-report/
+```
+
+**Giải thích - phần `matrix` là mấu chốt:**
+
+- `strategy.matrix` - cơ chế của GitHub Actions để **nhân bản** một job thành nhiều job song song. Ở đây `shardIndex` có 10 giá trị (1→10) nên job `test` được nhân thành **10 job chạy đồng thời**, mỗi job nhận một `shardIndex` khác nhau.
+- `fail-fast: false` - **quan trọng**: mặc định nếu một job trong matrix fail, GitHub hủy luôn các job còn lại. Đặt `false` để mọi shard chạy hết, bạn thấy được *toàn bộ* lỗi trong một lần thay vì lỗi đầu tiên đã cắt ngang.
+- `--shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}` - Playwright nhận cú pháp `--shard=2/10` nghĩa là "chạy phần thứ 2 trong 10 phần". Mỗi máy chỉ chạy ~1/10 số test. Cú pháp `${{ ... }}` là cách GitHub Actions chèn giá trị biến.
+- Tên artifact gắn `${{ matrix.shardIndex }}` để mỗi shard upload báo cáo riêng, không đè lên nhau (sau đó có thể gộp lại bằng `merge-reports`).
+
+## 3. Chiến lược chạy song song
+
+```ts
+// playwright.config.ts
+export default defineConfig({
+  workers: process.env.CI ? 2 : undefined, // 2 worker trên CI, tối đa khi local
+  fullyParallel: true,                      // song song cả trong từng file
+  retries: process.env.CI ? 2 : 0,          // retry khi fail trên CI
+});
+```
+
+**Giải thích:**
+
+- `workers` - số tiến trình chạy test song song *trên một máy*. `process.env.CI ? 2 : undefined`: trên CI giới hạn 2 worker (vì máy ảo CI thường ít CPU, nhiều worker quá lại chậm/flaky); ở local để `undefined` nghĩa là Playwright tự dùng tối đa theo số CPU.
+- **Phân biệt với sharding:** `workers` chia song song *trong cùng một máy*; `sharding` chia song song *qua nhiều máy*. Hai cái kết hợp được: 10 máy (shard), mỗi máy 2 worker = 20 luồng song song.
+- `fullyParallel: true` - như đã nói ở Chapter 2, song song tới cả từng test trong một file.
+- `retries` - retry trên CI để giảm nhiễu, local 0 để thấy fail ngay.
+
+## 4. Chạy bằng Docker
+
+```dockerfile
+# Dockerfile
+FROM mcr.microsoft.com/playwright:v1.40.0-focal
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+CMD ["npx", "playwright", "test"]
+```
+
+```yaml
+# docker-compose.yml
+version: '3'
+services:
+  playwright:
+    build: .
+    environment:
+      - CI=true
+    volumes:
+      - ./playwright-report:/app/playwright-report
+```
+
+**Giải thích:**
+
+- `FROM mcr.microsoft.com/playwright:...` - dùng image chính thức của Playwright, **đã cài sẵn trình duyệt và mọi thư viện hệ thống**. Đây là lý do nên dùng image này thay vì tự cài từ `node` base image - đỡ đau đầu vụ thiếu dependency. (Bạn nên cập nhật tag phiên bản cho khớp Playwright trong dự án.)
+- `WORKDIR /app` - đặt thư mục làm việc.
+- `COPY package*.json ./` rồi `RUN npm ci` **trước** khi `COPY . .` - đây là mẹo tối ưu Docker layer cache: nếu mã nguồn đổi nhưng dependencies không đổi, Docker tái dùng layer `npm ci` đã cache, build nhanh hơn nhiều.
+- `CMD [...]` - lệnh chạy mặc định khi container khởi động.
+- Trong `docker-compose.yml`: `environment: CI=true` để Playwright biết đang chạy CI (áp dụng retry, giới hạn worker); `volumes` map thư mục báo cáo ra ngoài để bạn xem được sau khi container kết thúc.
+
+> **Khuyến nghị thực dụng:** Với phần lớn dự án, 10 shard là đủ. Suite cực lớn (2000+ test) mới cần 20+. GitHub Actions cho phép tới 256 job song song, nhưng nhiều shard quá thì chi phí khởi động (cài đặt) cho mỗi máy lại lấn át phần thời gian tiết kiệm - cân đối là chính.

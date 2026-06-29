@@ -1,0 +1,187 @@
+---
+title: 'Playwright Handbook — Chapter 8: Page Object Model (POM) và Component Object Model (COM)'
+summary: Gom locator và hành vi vào một nơi với Page Object, Component Object, Base Page và kế thừa — kèm góc nhìn cân bằng về over-engineering.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 8** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Khi số test tăng lên, bạn sẽ thấy mình copy-paste cùng một locator ở chục chỗ. Đến lúc dev đổi giao diện, bạn phải sửa chục chỗ đó. **Page Object Model (POM)** và **Component Object Model (COM)** sinh ra để giải quyết đúng nỗi đau này: gom locator và hành vi vào một nơi, để khi UI đổi chỉ sửa một chỗ.
+
+## 1. Page Object cơ bản
+
+Ý tưởng: mỗi trang là một class, locator là thuộc tính, thao tác là method.
+
+```ts
+// pages/LoginPage.ts
+import { Page, Locator } from '@playwright/test';
+
+export class LoginPage {
+  readonly page: Page;
+  readonly emailInput: Locator;
+  readonly passwordInput: Locator;
+  readonly submitButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.emailInput = page.getByLabel('Email');
+    this.passwordInput = page.getByLabel('Password');
+    this.submitButton = page.getByRole('button', { name: 'Log in' });
+  }
+
+  async goto() {
+    await this.page.goto('/login');
+  }
+
+  async login(email: string, password: string) {
+    await this.emailInput.fill(email);
+    await this.passwordInput.fill(password);
+    await this.submitButton.click();
+  }
+}
+```
+
+**Giải thích từng phần:**
+
+- `export class LoginPage` — định nghĩa class đại diện cho trang Login, export ra để file test import vào dùng.
+- `readonly page: Page` và các `readonly ...Input: Locator` — khai báo thuộc tính với kiểu rõ ràng. `readonly` nghĩa là sau khi gán trong constructor thì **không gán lại được** — đảm bảo locator không bị thay đổi nhầm giữa chừng.
+- `constructor(page: Page)` — hàm khởi tạo, nhận `page` từ bên ngoài truyền vào. Bên trong, ta gán `this.page = page` và **khởi tạo sẵn tất cả locator một lần**. Lưu ý: tạo locator ở đây *không* tốn kém — locator là "công thức tìm phần tử", nó chỉ thực sự chạy khi bạn gọi action/assertion lên nó.
+- `async goto()` — method điều hướng tới trang login.
+- `async login(email, password)` — gom cả luồng đăng nhập (điền email, điền password, click) vào một method có tham số. Test gọi `login(...)` mà không cần biết chi tiết bên trong.
+
+**Dùng trong test:**
+
+```ts
+test('login test', async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.goto();
+  await loginPage.login('user@example.com', 'pass123');
+  await expect(page).toHaveURL('/dashboard');
+});
+```
+
+Test giờ đọc rất sạch: tạo đối tượng trang → goto → login → assert. Toàn bộ chi tiết locator nằm gọn trong `LoginPage`. Khi dev đổi label "Email" thành "Email address", bạn chỉ sửa **một dòng** trong `LoginPage`, mọi test dùng nó tự động đúng.
+
+## 2. Component Object Model — cách tiếp cận cho app lớn
+
+App hiện đại được dựng từ **component** tái sử dụng. Ví dụ Header xuất hiện trên 15 trang. Nếu mỗi trang là một Page Object riêng và đều khai báo lại locator của Header, thì khi Header đổi, bạn phải sửa 15 chỗ. **Component Object** giải quyết: tách Header ra thành một class riêng, mọi trang dùng chung.
+
+```ts
+// components/HeaderComponent.ts
+export class HeaderComponent {
+  readonly page: Page;
+  readonly logo: Locator;
+  readonly searchInput: Locator;
+  readonly userMenu: Locator;
+  readonly logoutBtn: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.logo = page.getByTestId('logo');
+    this.searchInput = page.getByTestId('search');
+    this.userMenu = page.getByTestId('user-menu');
+    this.logoutBtn = page.getByTestId('logout');
+  }
+
+  async clickLogo() {
+    await this.logo.click();
+  }
+
+  async search(query: string) {
+    await this.searchInput.fill(query);
+    await this.page.keyboard.press('Enter');
+  }
+
+  async logout() {
+    await this.userMenu.click();
+    await this.logoutBtn.click();
+  }
+}
+```
+
+Cấu trúc y hệt Page Object, chỉ khác về *phạm vi*: nó mô tả một **mảnh UI** (Header) thay vì cả một trang. `search()` gom hai bước (điền ô search + nhấn Enter); `logout()` gom hai bước (mở menu user + bấm logout).
+
+**Dùng Component bên trong Page Object:**
+
+```ts
+// pages/DashboardPage.ts
+import { HeaderComponent } from '../components/HeaderComponent';
+
+export class DashboardPage {
+  header: HeaderComponent;
+
+  constructor(private page: Page) {
+    this.header = new HeaderComponent(page);
+  }
+
+  async navigateToTransactions() {
+    await this.header.search('transactions');
+  }
+}
+```
+
+**Giải thích:**
+
+- `constructor(private page: Page)` — đây là cú pháp rút gọn của TypeScript: thêm `private` (hoặc `readonly`/`public`) trước tham số constructor sẽ **tự động** tạo và gán thuộc tính `this.page`. Khỏi phải viết `this.page = page` thủ công. Tiện và gọn.
+- `this.header = new HeaderComponent(page)` — trang Dashboard *chứa* một Header. Ta tạo HeaderComponent và truyền cùng `page` vào. Giờ trong test, `dashboardPage.header.logout()` hoạt động.
+- `navigateToTransactions()` dùng lại `this.header.search(...)` — tái sử dụng logic của component.
+
+## 3. Base Page — gom phần dùng chung
+
+Nếu Header và Footer xuất hiện trên *mọi* trang, ta tạo một **BasePage** chứa sẵn chúng, rồi các trang khác kế thừa:
+
+```ts
+// pages/BasePage.ts
+export class BasePage {
+  readonly page: Page;
+  readonly header: HeaderComponent;
+  readonly footer: FooterComponent;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.header = new HeaderComponent(page);
+    this.footer = new FooterComponent(page);
+  }
+}
+```
+
+**Kế thừa BasePage:**
+
+```ts
+export class ProductPage extends BasePage {
+  readonly addToCartBtn: Locator;
+
+  constructor(page: Page) {
+    super(page);
+    this.addToCartBtn = page.getByRole('button', { name: 'Add to Cart' });
+  }
+
+  async addToCart() {
+    await this.addToCartBtn.click();
+  }
+}
+```
+
+**Giải thích:**
+
+- `extends BasePage` — `ProductPage` **kế thừa** từ `BasePage`, nghĩa là nó tự động có sẵn `header` và `footer` mà không cần khai báo lại.
+- `super(page)` — gọi constructor của class cha (`BasePage`) trước, để phần khởi tạo `header`/`footer` ở cha chạy. **Bắt buộc** phải gọi `super()` trước khi dùng `this` trong class con.
+- Sau `super(page)`, ProductPage thêm phần riêng của nó (`addToCartBtn` và method `addToCart`).
+
+Kết quả: mọi trang kế thừa BasePage đều có `page.header`, `page.footer` sẵn dùng. Header đổi? Sửa một chỗ trong `HeaderComponent`, tất cả trang hưởng lợi.
+
+> **Lưu ý:** Có tài liệu cho rằng COM "giảm 80% chi phí bảo trì". Con số đó mang tính minh họa, đừng coi là đo đạc thật. Nhưng *nguyên lý* thì đúng và quan trọng: **đừng lặp lại định nghĩa của cùng một mảnh UI ở nhiều nơi** (nguyên tắc DRY). Tách component khi một mảnh UI dùng lại ở nhiều trang là quyết định hợp lý.
+
+## 4. Best practices
+
+- Đặt tên class và method mô tả rõ ý ("LoginPage", "addToCart") thay vì chung chung.
+- Mỗi Page Object tập trung vào **một trang** — đừng nhồi nhét.
+- Dùng `readonly` cho locator để tránh gán nhầm.
+- Trích các component dùng chung (Header, Footer, Navigation, Modal) ra COM.
+- Dùng BasePage cho phần logic/locator chia sẻ giữa nhiều trang.
+
+> **Một góc nhìn cân bằng:** POM/COM rất tốt cho dự án lớn, nhưng đừng over-engineer từ ngày đầu. Với một suite nhỏ, đôi khi viết test thẳng còn dễ đọc hơn. Và trong Playwright, **fixtures** (Chapter 13) thường là cách tổ chức gọn hơn cả POM cho phần setup — nhiều khi bạn kết hợp cả hai: fixtures lo phần khởi tạo/đăng nhập, Page Object lo phần locator/hành vi của trang.

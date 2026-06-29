@@ -1,0 +1,116 @@
+---
+title: 'Playwright Handbook — Chapter 6: Actions và Interactions'
+summary: Các nhóm action trong Playwright — click, gõ phím, thao tác form, upload file, mouse action — đều có auto-wait.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 6** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Khi đã tìm được phần tử bằng locator, bạn cần *tương tác* với nó. Chapter này điểm qua các nhóm action: click, gõ phím, thao tác form, upload file, và mouse action. Nhớ rằng **mọi action đều có auto-wait** — Playwright tự đợi phần tử sẵn sàng trước khi thực hiện.
+
+## 1. Click
+
+```ts
+// Click thường
+await page.getByRole('button').click();
+
+// Double click
+await page.getByText('File').dblclick();
+
+// Right click (chuột phải)
+await page.getByText('Item').click({ button: 'right' });
+
+// Click kèm phím bổ trợ (Ctrl+Click)
+await page.getByText('Link').click({ modifiers: ['Control'] });
+```
+
+**Giải thích:**
+
+- `.click()` mặc định click chuột trái.
+- `.dblclick()` là double-click — hữu ích cho UI cần nhấp đúp để mở.
+- `click({ button: 'right' })` — tham số `button` đổi sang chuột phải, thường để mở context menu.
+- `click({ modifiers: ['Control'] })` — giữ phím Ctrl trong lúc click (ví dụ mở link ở tab mới, hoặc chọn nhiều mục). `modifiers` là một mảng nên bạn có thể kết hợp `['Control', 'Shift']`.
+
+## 2. Gõ text
+
+```ts
+// fill — XÓA nội dung cũ rồi điền giá trị mới
+await page.getByLabel('Username').fill('john.doe');
+
+// type — gõ từng ký tự, KHÔNG xóa nội dung cũ
+await page.getByLabel('Search').type('playwright');
+
+// Nhấn phím
+await page.keyboard.press('Enter');
+await page.keyboard.press('Control+A');
+```
+
+**Khác biệt quan trọng giữa `fill` và `type`:**
+
+- `fill()` đặt thẳng giá trị vào ô (clear trước, nhanh, ổn định). **Đây là lựa chọn mặc định nên dùng** cho hầu hết trường hợp.
+- `type()` mô phỏng gõ từng phím một (phát sinh sự kiện keydown/keyup cho mỗi ký tự). Chỉ cần khi bạn test logic phản ứng theo từng phím — ví dụ ô search tự gợi ý khi gõ. (Lưu ý: trong các bản Playwright mới, `type` được khuyên thay bằng `pressSequentially` nếu cần gõ từng phím.)
+- `keyboard.press('Enter')` — nhấn một phím trên bàn phím ảo, không gắn với phần tử cụ thể. `'Control+A'` là tổ hợp phím (chọn tất cả).
+
+## 3. Thao tác form
+
+```ts
+// Checkbox
+await page.getByRole('checkbox', { name: 'Terms' }).check();
+await page.getByRole('checkbox').uncheck();
+
+// Radio button
+await page.getByRole('radio', { name: 'Option 1' }).check();
+
+// Dropdown
+await page.getByLabel('Country').selectOption('USA');
+await page.getByLabel('Country').selectOption({ label: 'United States' });
+```
+
+**Giải thích:**
+
+- `.check()` / `.uncheck()` — đảm bảo checkbox ở trạng thái tích/bỏ tích. Hay ở chỗ: nếu checkbox *đã* tích sẵn, `.check()` không làm gì (idempotent) — không lo double-toggle.
+- `selectOption('USA')` — chọn option theo **value** (thuộc tính `value` của thẻ option).
+- `selectOption({ label: 'United States' })` — chọn theo **text hiển thị**. Dùng dạng này khi bạn chỉ biết chữ người dùng thấy chứ không biết value bên dưới.
+
+## 4. Upload file
+
+```ts
+// Một file
+await page.getByLabel('Upload').setInputFiles('file.pdf');
+
+// Nhiều file
+await page.getByLabel('Upload').setInputFiles(['file1.jpg', 'file2.jpg']);
+```
+
+`setInputFiles` gán file vào input `type="file"`. Truyền một chuỗi cho một file, hoặc một mảng cho nhiều file. (Để xóa file đã chọn, truyền mảng rỗng `setInputFiles([])` — xem Chapter 9.)
+
+## 5. Mouse actions
+
+```ts
+// Hover (rê chuột lên)
+await page.getByRole('link', { name: 'Products' }).hover();
+
+// Kéo-thả
+await page.getByText('Drag').dragTo(page.getByText('Drop here'));
+```
+
+**Giải thích:**
+
+- `.hover()` — di chuột lên phần tử mà không click. Dùng để test menu xổ ra khi hover, tooltip...
+- `.dragTo(target)` — kéo phần tử hiện tại và thả vào phần tử `target`. Tham số là **một locator khác** (đích đến).
+
+## 6. Ví dụ điền form hoàn chỉnh
+
+```ts
+await page.getByLabel('First Name').fill('John');
+await page.getByLabel('Email').fill('john@example.com');
+await page.getByLabel('Country').selectOption('USA');
+await page.getByLabel('I agree').check();
+await page.getByRole('button', { name: 'Register' }).click();
+```
+
+Đọc đoạn này như một câu chuyện: điền tên → điền email → chọn quốc gia → tích đồng ý điều khoản → bấm Register. Mỗi dòng đều tự đợi phần tử sẵn sàng, nên bạn không cần chèn `wait` ở giữa. Đây chính là cảm giác "viết test như mô tả thao tác người dùng" mà Playwright hướng tới.

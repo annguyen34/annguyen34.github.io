@@ -1,0 +1,167 @@
+---
+title: 'Playwright Handbook — Chapter 16: Các pattern nâng cao'
+summary: Mock network để test resilience, global teardown dọn dữ liệu, và self-healing locator — kèm cảnh báo về mặt trái của nó.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 16** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Chapter này sẽ gom ba kỹ thuật "lên tay": mock network để test khả năng chống chịu (resilience), dọn dữ liệu toàn cục (global teardown), và locator tự phục hồi (self-healing). Đây là những thứ tách biệt một suite "chạy được" với một suite "chịu được áp lực thực tế".
+
+## 1. Mock mạng để test resilience
+
+Phần lớn test kiểm tra happy path khi mọi thứ ổn. Nhưng app thật phải sống sót khi server sập, mạng lag. Ta dùng `page.route` để *giả lập sự cố*.
+
+**Giả lập server sập (503):**
+
+```ts
+test('handles banking server down', async ({ page }) => {
+  await page.route('**/api/transactions', route => {
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Service temporarily unavailable' }),
+    });
+  });
+
+  await page.goto('/transactions');
+
+  // Kiểm tra app xử lý lỗi một cách "duyên dáng"
+  await expect(page.getByText('Service temporarily unavailable')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expect(page.getByText('Please try again later')).toBeVisible();
+});
+```
+
+**Giải thích:**
+
+- Thay vì `fulfill` trả 200 như mock thường (Chapter 9), ở đây ta cố tình trả **status 503** (Service Unavailable) - giả lập server đang sập.
+- Phần assert kiểm tra app **phản ứng đúng khi lỗi**: hiện thông báo lỗi, hiện nút "Retry", hướng dẫn người dùng thử lại. Đây là điều `happy path` test không bao giờ chạm tới.
+- Test loại này cực giá trị: nó xác minh rằng khi backend gặp sự cố, người dùng không thấy màn hình trắng hay app văng - mà thấy thông báo rõ ràng.
+
+**Giả lập mạng chậm:**
+
+```ts
+test('handles slow network', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    // Trì hoãn response 5 giây
+    setTimeout(() => route.continue(), 5000);
+  });
+
+  await page.goto('/dashboard');
+
+  // Kiểm tra trạng thái loading hiển thị
+  await expect(page.getByText('Loading...')).toBeVisible();
+});
+```
+
+**Giải thích:**
+
+- `page.route('**/api/**', ...)` - pattern `**/api/**` khớp *mọi* request có `/api/` trong đường dẫn.
+- `setTimeout(() => route.continue(), 5000)` - đợi 5 giây *rồi mới* cho request đi tiếp (`route.continue()` = để request chạy thật, khác `fulfill` là chặn lại). Nghĩa là ta không chặn API, chỉ làm nó **chậm đi**.
+- Khác biệt then chốt với phần trên: `fulfill` = trả giả không chạm server; `continue` = vẫn cho request đi thật. Ở đây ta dùng `continue` có delay để giả lập mạng lag.
+- Assert kiểm tra app có hiện "Loading..." trong lúc chờ - xác minh trải nghiệm chờ đợi của người dùng được xử lý tử tế.
+
+## 2. Global Teardown - dọn dữ liệu toàn cục
+
+`afterEach` (Chapter 10) dọn sau *mỗi test*. Nhưng đôi khi bạn cần một lần dọn *sau toàn bộ suite* - đó là global teardown.
+
+```ts
+// global-teardown.ts
+import { FullConfig } from '@playwright/test';
+
+async function globalTeardown(config: FullConfig) {
+  console.log('Cleaning up test data...');
+
+  const response = await fetch('http://localhost:8000/api/cleanup', {
+    method: 'DELETE',
+    headers: { 'X-Test-Cleanup': 'true' },
+  });
+
+  if (response.ok) {
+    console.log('✓ Test data cleaned up successfully');
+  }
+}
+
+export default globalTeardown;
+```
+
+```ts
+// playwright.config.ts
+export default defineConfig({
+  globalTeardown: require.resolve('./global-teardown'),
+});
+```
+
+**Giải thích:**
+
+- `globalTeardown` là một hàm chạy **một lần duy nhất, sau khi toàn bộ test đã xong**. Đối lập với nó là `globalSetup` (chạy một lần *trước* mọi test - ví dụ seed database).
+- Hàm nhận `config: FullConfig` (toàn bộ cấu hình dự án), thường dùng khi cần đọc baseURL hay thông tin chung.
+- Bên trong gọi API `/api/cleanup` với method DELETE để xóa sạch dữ liệu test khỏi database. `response.ok` là `true` khi status 2xx.
+- Trong config, `require.resolve('./global-teardown')` chỉ ra đường dẫn file teardown.
+
+> **Vì sao quan trọng:** Sau 1000 test, database có thể đầy rác. Nếu không dọn, lần chạy sau có thể bị nhiễu bởi dữ liệu cũ → test mất tính độc lập, fail khó hiểu. Global teardown giữ môi trường sạch giữa các lần chạy.
+
+## 3. Self-Healing Locator - locator tự phục hồi
+
+**Ý tưởng**: thay vì để test fail ngay khi selector chính hỏng, thử lần lượt các selector dự phòng.
+
+```ts
+// utils/selfHealingLocator.ts
+export async function smartLocator(
+  page: Page,
+  primarySelector: string,
+  fallbackSelectors: string[]
+): Promise<Locator> {
+  // Thử selector chính
+  let element = page.locator(primarySelector);
+  if (await element.count() > 0) {
+    return element;
+  }
+
+  // Thử lần lượt các selector dự phòng
+  for (const selector of fallbackSelectors) {
+    element = page.locator(selector);
+    if (await element.count() > 0) {
+      console.log(`Self-healed: dùng ${selector} thay cho ${primarySelector}`);
+      return element;
+    }
+  }
+
+  throw new Error(`Không tìm thấy phần tử: ${primarySelector}`);
+}
+```
+
+**Cách dùng:**
+
+```ts
+const loginButton = await smartLocator(
+  page,
+  'button.login-btn',          // selector chính
+  [                            // các selector dự phòng
+    'button#login',
+    '[data-testid="login-button"]',
+    'button:has-text("Log in")',
+  ]
+);
+await loginButton.click();
+```
+
+**Giải thích:**
+
+- Hàm nhận selector chính + một mảng selector dự phòng. Trả về `Promise<Locator>` (vì có `await` bên trong nên hàm là async).
+- Thử selector chính trước: `await element.count() > 0` nghĩa là "có tìm thấy phần tử không". Nếu có → trả về luôn.
+- Nếu không, vòng `for...of` thử từng selector dự phòng. Cái nào khớp đầu tiên thì dùng, kèm log báo "đã tự phục hồi".
+- Nếu cạn cả dự phòng → `throw new Error(...)` để test fail với thông báo rõ ràng.
+
+> **Lưu ý:** Có nhiều người sẽ quảng cáo self-healing "giảm 60% bảo trì". Mình khuyên bạn **thận trọng** với pattern này. Nó có mặt trái thật:
+>
+> - Khi selector chính hỏng mà test vẫn pass nhờ fallback, bạn **mất tín hiệu** rằng UI đã đổi - đáng lẽ test nên fail để bạn biết và cập nhật.
+> - Nó che giấu "nợ kỹ thuật": selector hỏng cứ chồng chất mà không ai sửa.
+> - Nó phức tạp hóa code và làm test khó suy luận hơn.
+>
+> Cách tiếp cận lành mạnh hơn trong đa số trường hợp: dùng **locator user-facing bền** (`getByRole`, `getByLabel` - Chapter 5) ngay từ đầu, để bạn hiếm khi cần fallback. Self-healing chỉ nên cân nhắc cho những trang legacy thật sự khó kiểm soát, và luôn kèm cảnh báo/log để team biết mà dọn dẹp. Đừng coi nó là "viên đạn bạc".

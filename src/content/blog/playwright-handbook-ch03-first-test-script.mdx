@@ -1,0 +1,272 @@
+---
+title: 'Playwright Handbook — Chapter 3: First test script'
+summary: Bóc tách một file test Playwright viết bằng TypeScript — import, test case, fixtures, actions, locators, assertions, hooks.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 3** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Dưới đây là file test Playwright được viết bằng TypeScript và tuân theo cấu trúc chuẩn để thực hiện automated testing cho web applications. Chúng ta sẽ bóc tách từng phần để phân tích.
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test('has title', async ({ page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Expect a title "to contain" a substring.
+  await expect(page).toHaveTitle(/Playwright/);
+});
+
+test('get started link', async ({ page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Click the get started link.
+  await page.getByRole('link', { name: 'Get started' }).click();
+
+  // Expects page to have a heading with the name of Installation.
+  await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible();
+});
+```
+
+---
+
+## 1. Import
+
+```ts
+import { test, expect } from '@playwright/test';
+```
+
+| Module | Mô tả |
+| --- | --- |
+| `test` | Hàm định nghĩa test case, test suite |
+| `expect` | Thư viện assertion để kiểm tra kết quả |
+
+---
+
+## 2. Test Case
+
+### Cú pháp cơ bản
+
+```ts
+test('tên test case', async ({ page }) => {
+  // Code test ở đây
+});
+```
+
+### Các thành phần
+
+| Thành phần | Mô tả |
+| --- | --- |
+| `'tên test case'` | Mô tả ngắn gọn mục đích của test |
+| `async` | Keyword cho phép sử dụng `await` |
+| `{ page }` | Fixture - browser page object được inject tự động |
+| Arrow function | Callback chứa logic test |
+
+---
+
+## 3. Test Suite (Nhóm Test)
+
+(Trick lỏ là thường dùng để làm test step trong report)
+
+```ts
+test.describe('Tên nhóm test', () => {
+  test('test 1', async ({ page }) => { /* ... */ });
+  test('test 2', async ({ page }) => { /* ... */ });
+});
+```
+
+---
+
+## 4. Fixtures (Tham số được inject)
+
+| Fixture | Mô tả |
+| --- | --- |
+| `page` | Browser page - đối tượng chính để tương tác với trang web |
+| `browser` | Browser instance |
+| `context` | Browser context (session riêng biệt) |
+| `request` | API request context |
+
+---
+
+## 5. Page Actions (Hành động trên trang)
+
+### Navigation
+
+```ts
+await page.goto('https://example.com');        // Điều hướng đến URL
+await page.goBack();                           // Quay lại trang trước
+await page.goForward();                        // Tiến đến trang sau
+await page.reload();                           // Reload trang
+```
+
+### Tương tác với Element
+
+```ts
+await page.click('selector');                  // Click vào element
+await page.fill('selector', 'text');           // Nhập text vào input
+await page.type('selector', 'text');           // Gõ từng ký tự
+await page.check('selector');                  // Check checkbox
+await page.uncheck('selector');                // Uncheck checkbox
+await page.selectOption('selector', 'value');  // Chọn option trong select
+await page.hover('selector');                  // Hover vào element
+await page.dblclick('selector');               // Double click
+```
+
+---
+
+## 6. Locators (Cách tìm Element - sẽ nói chi tiết trong phần sau)
+
+### Recommended Locators
+
+```ts
+// Theo Role (khuyến nghị)
+page.getByRole('button', { name: 'Submit' })
+page.getByRole('link', { name: 'Home' })
+page.getByRole('heading', { name: 'Title' })
+
+// Theo Text
+page.getByText('Hello World')
+page.getByLabel('Username')
+page.getByPlaceholder('Enter email')
+
+// Theo Test ID
+page.getByTestId('submit-button')
+```
+
+### CSS & XPath Selectors
+
+```ts
+page.locator('css=button.primary')
+page.locator('xpath=//button[@type="submit"]')
+page.locator('#id')
+page.locator('.class')
+```
+
+---
+
+## 7. Assertions (Kiểm tra kết quả)
+
+### Page Assertions
+
+```ts
+await expect(page).toHaveTitle('Page Title');
+await expect(page).toHaveTitle(/regex/);
+await expect(page).toHaveURL('https://example.com');
+await expect(page).toHaveURL(/regex/);
+```
+
+### Element Assertions
+
+```ts
+const element = page.locator('selector');
+
+await expect(element).toBeVisible();           // Element hiển thị
+await expect(element).toBeHidden();            // Element ẩn
+await expect(element).toBeEnabled();           // Element enabled
+await expect(element).toBeDisabled();          // Element disabled
+await expect(element).toHaveText('text');      // Có text chính xác
+await expect(element).toContainText('text');   // Chứa text
+await expect(element).toHaveValue('value');    // Input có value
+await expect(element).toHaveAttribute('attr', 'value'); // Attribute có value
+await expect(element).toHaveClass('class');    // Có class
+await expect(element).toHaveCount(5);          // Số lượng elements
+```
+
+---
+
+## 8. Hooks (Setup & Teardown ⇒ này cũng na ná fixture trong pytest - yield)
+
+```ts
+test.beforeAll(async () => {
+  // Chạy 1 lần trước tất cả tests
+});
+
+test.beforeEach(async ({ page }) => {
+  // Chạy trước mỗi test
+  await page.goto('https://example.com');
+});
+
+test.afterEach(async ({ page }) => {
+  // Chạy sau mỗi test
+});
+
+test.afterAll(async () => {
+  // Chạy 1 lần sau tất cả tests
+});
+```
+
+---
+
+## 9. Ví dụ Hoàn Chỉnh
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Homepage Tests', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto('https://playwright.dev/');
+  });
+
+  test('should have correct title', async ({ page }) => {
+    await expect(page).toHaveTitle(/Playwright/);
+  });
+
+  test('should navigate to docs', async ({ page }) => {
+    // Click vào link
+    await page.getByRole('link', { name: 'Get started' }).click();
+
+    // Verify navigation
+    await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible();
+  });
+
+  test('should search documentation', async ({ page }) => {
+    // Click search button
+    await page.getByRole('button', { name: 'Search' }).click();
+
+    // Type search query
+    await page.getByPlaceholder('Search docs').fill('locator');
+
+    // Verify results appear
+    await expect(page.getByRole('listbox')).toBeVisible();
+  });
+});
+```
+
+---
+
+## 10. Chạy Tests
+
+```bash
+# Chạy tất cả tests
+npx playwright test
+
+# Chạy file cụ thể
+npx playwright test tests/example.spec.ts
+
+# Chạy với UI mode
+npx playwright test --ui
+
+# Chạy với headed browser
+npx playwright test --headed
+
+# Chạy test có tên cụ thể
+npx playwright test -g "test name"
+
+# Xem report
+npx playwright show-report
+```
+
+---
+
+## Tham Khảo
+
+- [Playwright Documentation](https://playwright.dev/docs/intro)
+- [Locators](https://playwright.dev/docs/locators)
+- [Assertions](https://playwright.dev/docs/test-assertions)
+- [Best Practices](https://playwright.dev/docs/best-practices)

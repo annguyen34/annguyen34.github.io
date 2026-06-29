@@ -1,0 +1,221 @@
+---
+title: 'Playwright Handbook — Chapter 2: Setting environment'
+summary: Init một project Playwright + TypeScript từ đầu, cấu hình playwright.config.ts và chạy test đầu tiên.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 2** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+## 1. Linh ta linh tinh trước khi bắt đầu
+
+- Node JS 16+
+- VS Code
+- Biết TypeScript chút đỉnh
+- Biết sử dụng CLI chút đỉnh luôn
+
+## 2. Làm sao để init 1 project Playwright
+
+- Step 1: Tạo project, ở đây mình sử dụng terminal lun nhá
+
+```bash
+mkdir playwright-automation
+cd playwright-automation
+npm init -y
+code . # Nếu muốn start vscode ở folder này lun
+```
+
+- Step 2: Install playwright
+
+```bash
+npm init playwright@latest
+```
+
+Lúc này bạn sẽ được hỏi có muốn cài package đi kèm thì cứ tự tin say yes với mọi thứ nhé
+
+![Init Playwright](/playwright-handbook/ch02/img-0.png)
+
+Tiếp theo là ngôn ngữ bạn muốn triển khai với Playwright, sẽ có 2 option là TypeScript và JavaScript. Tất nhiên là TypeScript rồi, còn vì sao thì nhìn title bài viết :(
+
+![Chọn ngôn ngữ](/playwright-handbook/ch02/img-1.png)
+
+Next là folder bạn muốn chứa các file test, mình khuyên là các bạn nên để theo những gì Playwright gợi ý, ở đây là folder `tests`.
+
+![Chọn thư mục test](/playwright-handbook/ch02/img-2.png)
+
+Và kế tiếp là Github Actions workflow, ở đây tùy các bạn có muốn run CI trên Github không nên là có hay không gì cũng được tùy vào bạn, nhưng mình vẫn khuyên là nên add nhé
+
+![Github Actions](/playwright-handbook/ch02/img-3.png)
+
+Và cuối cùng là cài đặt Playwright browsers + dependencies (optional, vì cần quyền sudo nên các bạn có thể cài sau theo command của Playwright gợi ý)
+
+![Cài browsers](/playwright-handbook/ch02/img-4.png)
+
+![Tiến trình cài đặt](/playwright-handbook/ch02/img-5.png)
+
+- Và cúi cùng bạn sẽ được init sẵn 1 folder test, 1 file gitignore, 1 file `playwright.config.ts` (Mình sẽ nói chi tiết về file này sau)
+
+![Cấu trúc project sau init](/playwright-handbook/ch02/img-6.png)
+
+## 3. Configuration
+
+### 3.1 Trước khi zô
+
+- Trước tiên nếu bạn có gặp lỗi này trong phần Problems tab của VSCode
+
+```text
+Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+```
+
+Thì bạn hãy tạo 1 file `tsconfig.json` và thêm những dòng này vào
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2021", "DOM"],
+    "types": ["node"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+và (`Cmd/Ctrl+Shift+P`) → **TypeScript: Restart TS Server**.
+
+### 3.2 Playwright configuration
+
+Playwright đã init sẵn và command các dòng config có nghĩa là gì trong file ở đây mình cũng sẽ tóm tắt lại luôn.
+
+Tài liệu được tham khảo tại: [https://playwright.dev/docs/test-configuration](https://playwright.dev/docs/test-configuration). Bên dưới mình chỉ nói về config xuất hiện sau khi init.
+
+```ts
+import { defineConfig, devices } from '@playwright/test';
+export default defineConfig({
+ testDir: './tests',
+ timeout: 30 * 1000,
+ fullyParallel: true,
+ retries: process.env.CI ? 2 : 0,
+ reporter: 'html',
+ use: {
+ baseURL: 'http://localhost:3000',
+ trace: 'on-first-retry',
+ screenshot: 'only-on-failure',
+ },
+ projects: [
+ { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+ { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+ { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+ ],
+});
+```
+
+```ts
+import { defineConfig, devices } from '@playwright/test';
+```
+
+Import `defineConfig` (hàm cấu hình) và `devices` (danh sách thiết bị/trình duyệt) từ Playwright.
+
+---
+
+```ts
+export default defineConfig({
+```
+
+Xuất cấu hình mặc định cho Playwright.
+
+---
+
+```ts
+  testDir: './tests',
+```
+
+Thư mục chứa các file test (folder `tests`). Nôm na là folder chứa tất cả file test để run.
+
+---
+
+```ts
+  fullyParallel: true,
+```
+
+Chạy tất cả test song song với nhau.
+
+---
+
+```ts
+  forbidOnly: !!process.env.CI,
+```
+
+Trên môi trường CI, cấm dùng `test.only` — nếu ai vô tình để lại sẽ làm build thất bại.
+
+---
+
+```ts
+  retries: process.env.CI ? 2 : 0,
+```
+
+Trên CI: thử lại 2 lần nếu test fail. Ở local: không thử lại.
+
+---
+
+```ts
+  workers: process.env.CI ? 1 : undefined,
+```
+
+Trên CI: chỉ dùng 1 worker (chạy tuần tự). Ở local: dùng số worker mặc định (theo số nhân CPU).
+
+---
+
+```ts
+  reporter: 'html',
+```
+
+Sau khi chạy xong, tạo báo cáo dạng HTML (xem bằng `npx playwright show-report`).
+
+---
+
+```ts
+  use: {
+    trace: 'on-first-retry',
+  },
+```
+
+Ghi lại trace (log chi tiết để debug) chỉ khi test bị retry lần đầu tiên.
+
+---
+
+```ts
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox',  use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit',   use: { ...devices['Desktop Safari'] } },
+  ],
+```
+
+Định nghĩa 3 project: chạy test trên Chrome, Firefox, và Safari (WebKit). Mỗi project dùng cấu hình thiết bị tương ứng từ danh sách `devices`.
+
+---
+
+Ngoài ra sẽ có phần comment out là các tùy chọn mở rộng chưa dùng:
+
+- **Mobile Chrome / Mobile Safari** — test trên viewport di động.
+- **Microsoft Edge / Google Chrome** — test trên trình duyệt thật thay vì Chromium.
+- **webServer** — tự khởi động dev server trước khi chạy test.
+
+## 4. Run test
+
+Sau khi init, bạn có thể run test với CLI sau
+
+```bash
+npx playwright test
+```
+
+![Kết quả run test](/playwright-handbook/ch02/img-7.png)

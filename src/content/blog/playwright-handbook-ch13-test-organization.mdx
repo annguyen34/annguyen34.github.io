@@ -1,0 +1,195 @@
+---
+title: 'Playwright Handbook — Chapter 13: Tổ chức và cấu trúc test'
+summary: Cấu trúc thư mục, custom fixtures (vũ khí bí mật của Playwright), hooks, tagging, data-driven và cấu hình đa môi trường.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 13** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Một suite vài chục test thì cấu trúc kiểu gì cũng sống được. Nhưng tới vài trăm, vài nghìn test, cách bạn *tổ chức* mới quyết định suite còn bảo trì nổi hay không. Chapter này bàn về cấu trúc thư mục, custom fixtures (tính năng mình đánh giá là mạnh nhất Playwright), hooks, tagging, data-driven, và cấu hình đa môi trường.
+
+## 1. Cấu trúc thư mục
+
+Một bố cục hợp lý cho dự án lớn:
+
+```text
+playwright-project/
+├── tests/
+│   ├── e2e/              # Test end-to-end
+│   │   ├── auth/
+│   │   ├── transactions/
+│   │   └── admin/
+│   ├── api/              # Test API
+│   ├── visual/           # Visual regression
+│   └── performance/      # Performance
+├── pages/                # Page Objects
+│   ├── LoginPage.ts
+│   └── DashboardPage.ts
+├── components/           # Component Objects
+│   ├── HeaderComponent.ts
+│   └── FooterComponent.ts
+├── fixtures/             # Custom fixtures
+│   └── customFixtures.ts
+├── helpers/              # Hàm tiện ích
+│   ├── apiHelpers.ts
+│   └── testData.ts
+├── data/                 # Dữ liệu test
+│   └── users.json
+├── config/               # Cấu hình môi trường
+│   ├── staging.config.ts
+│   └── prod.config.ts
+└── playwright.config.ts
+```
+
+Nguyên tắc: tách theo **vai trò** của file (test / page object / component / fixture / data). Trong `tests/`, nên tổ chức theo **tính năng** (auth, transactions, admin) thay vì theo loại test - giữ các thứ liên quan gần nhau, dễ tìm.
+
+## 2. Custom Fixtures - "vũ khí bí mật" của Playwright
+
+Fixture là cơ chế Playwright dùng để inject thứ bạn cần vào test (`page`, `request`... đều là fixture có sẵn). Bạn có thể **tự định nghĩa fixture riêng** để gói phần setup lặp đi lặp lại.
+
+```ts
+// fixtures/customFixtures.ts
+import { test as base } from '@playwright/test';
+import { LoginPage } from '../pages/LoginPage';
+
+type CustomFixtures = {
+  loginPage: LoginPage;
+  authenticatedPage: Page;
+};
+
+export const test = base.extend<CustomFixtures>({
+  loginPage: async ({ page }, use) => {
+    await use(new LoginPage(page));
+  },
+
+  authenticatedPage: async ({ page }, use) => {
+    // Tự đăng nhập trước khi test chạy
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('user@example.com');
+    await page.getByLabel('Password').fill('pass123');
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await page.waitForURL('/dashboard');
+
+    await use(page);
+  },
+});
+```
+
+**Giải thích - đây là phần hơi khó với người mới:**
+
+- `import { test as base }` - import `test` gốc, đổi tên thành `base`. Ta sẽ *mở rộng* nó thành một `test` mới có thêm fixture.
+- `type CustomFixtures = {...}` - khai báo kiểu cho các fixture mới: `loginPage` kiểu `LoginPage`, `authenticatedPage` kiểu `Page`. TypeScript dùng cái này để autocomplete đúng trong test.
+- `base.extend<CustomFixtures>({...})` - tạo phiên bản `test` mới có thêm các fixture đã khai báo. **Quan trọng:** ta `export const test` này ra, và từ giờ các file test sẽ `import { test }` từ đây thay vì từ `@playwright/test`.
+- Mỗi fixture là một hàm `async ({ page }, use) => {...}`:
+    - Phần **trước** `await use(...)` là **setup** - chạy *trước* test.
+    - `await use(value)` - "giao" giá trị đó cho test dùng. Test chạy *tại* dòng này.
+    - Phần **sau** `await use(...)` (nếu có) là **teardown** - chạy *sau* khi test xong (dùng để dọn dẹp).
+- `loginPage` fixture: chỉ đơn giản tạo một `LoginPage` và giao cho test. Trong test, bạn nhận `{ loginPage }` là đã có sẵn, khỏi `new` thủ công.
+- `authenticatedPage` fixture: tự chạy nguyên luồng đăng nhập rồi giao một `page` *đã đăng nhập* cho test. Test nào cần "người dùng đã login" chỉ việc nhận `{ authenticatedPage }`.
+
+**So với POM:** Page Object lo phần *locator/hành vi của trang*; fixture lo phần *chuẩn bị điều kiện cho test* (đăng nhập, tạo dữ liệu...). Hai cái bổ trợ nhau. Khi master fixtures, bạn sẽ thấy phần lớn boilerplate "đăng nhập lại trong từng test" biến mất.
+
+## 3. Test Hooks
+
+```ts
+test.beforeEach(async ({ page }) => {
+  await page.goto('/');
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== 'passed') {
+    // Chụp màn hình khi test fail
+    await page.screenshot({ path: `failure-${testInfo.title}.png` });
+  }
+});
+```
+
+**Giải thích:**
+
+- `beforeEach` / `afterEach` chạy trước/sau **mỗi** test (còn `beforeAll`/`afterAll` chạy một lần cho cả nhóm).
+- `testInfo` - tham số thứ hai của hook, chứa thông tin về test vừa chạy: `testInfo.status` ('passed'/'failed'/...), `testInfo.title` (tên test).
+- Khối `if (testInfo.status !== 'passed')` - chỉ chụp màn hình khi test **không** pass. Tên file gắn theo tên test để dễ truy vết. (Thực ra Playwright có sẵn `screenshot: 'only-on-failure'` trong config làm việc này, nhưng đây là ví dụ minh họa cách dùng `testInfo`.)
+
+## 4. Gắn tag cho test
+
+```ts
+test('critical flow @smoke @critical', async ({ page }) => {
+  // ...
+});
+
+test('admin feature @admin', async ({ page }) => {
+  // ...
+});
+```
+
+```bash
+# Chỉ chạy test gắn @smoke
+npx playwright test --grep @smoke
+
+# Chạy mọi thứ TRỪ @admin
+npx playwright test --grep-invert @admin
+```
+
+**Giải thích:** Gắn tag (như `@smoke`, `@critical`, `@admin`) ngay trong tên test. Khi chạy, dùng `--grep` để **chỉ chạy** test khớp tag, hoặc `--grep-invert` để **loại trừ**. Cực hữu ích: chạy nhanh bộ smoke test khi commit, để dành full regression cho ban đêm.
+
+## 5. Data-Driven Testing
+
+```ts
+const users = [
+  { role: 'admin', email: 'admin@example.com', expectedUrl: '/admin' },
+  { role: 'user',  email: 'user@example.com',  expectedUrl: '/dashboard' },
+  { role: 'guest', email: 'guest@example.com', expectedUrl: '/welcome' },
+];
+
+for (const userData of users) {
+  test(`${userData.role} login flow`, async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel('Email').fill(userData.email);
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await expect(page).toHaveURL(userData.expectedUrl);
+  });
+}
+```
+
+**Giải thích:**
+
+- Mảng `users` chứa các bộ dữ liệu test khác nhau (mỗi role một dòng).
+- Vòng `for...of` đặt **bao quanh** `test()` - mỗi vòng lặp **sinh ra một test case riêng**. Kết quả: 3 test độc lập (`admin login flow`, `user login flow`, `guest login flow`), mỗi cái có thể pass/fail riêng và hiện riêng trong báo cáo.
+- Tên test dùng template string `${userData.role} login flow` để mỗi test có tên phân biệt.
+- Đây là cách kiểm cùng một luồng với nhiều bộ dữ liệu mà không copy-paste. Thêm role mới? Chỉ thêm một dòng vào mảng.
+
+## 6. Cấu hình môi trường
+
+```ts
+// config/environments.ts
+export const environments = {
+  local: {
+    baseUrl: 'http://localhost:3000',
+    apiUrl: 'http://localhost:8000',
+  },
+  staging: {
+    baseUrl: 'https://staging.example.com',
+    apiUrl: 'https://api.staging.example.com',
+  },
+  production: {
+    baseUrl: 'https://example.com',
+    apiUrl: 'https://api.example.com',
+  },
+};
+
+const env = process.env.ENV || 'local';
+export const config = environments[env];
+```
+
+**Giải thích:**
+
+- Object `environments` gom URL cho từng môi trường (local/staging/production).
+- `process.env.ENV || 'local'` - đọc biến môi trường `ENV`; nếu không đặt thì mặc định `'local'`. Toán tử `||` trả về vế phải khi vế trái "falsy" (rỗng/undefined).
+- `config = environments[env]` - chọn đúng bộ cấu hình theo môi trường hiện tại.
+- Cách chạy: `ENV=staging npx playwright test` sẽ trỏ test vào staging. Nhờ vậy *cùng một bộ test* chạy được trên nhiều môi trường mà không sửa code.
+
+> **Best practice:** Tổ chức test theo **tính năng/module**, không theo *loại* test. Giữ các test liên quan gần nhau để dễ bảo trì. Và đừng hard-code URL - luôn đẩy ra config theo môi trường.

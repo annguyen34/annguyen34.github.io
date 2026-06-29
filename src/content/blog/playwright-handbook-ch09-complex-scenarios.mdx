@@ -1,0 +1,247 @@
+---
+title: 'Playwright Handbook — Chapter 9: Xử lý kịch bản phức tạp'
+summary: Auth state, download/upload, geolocation, mock API, multi-user context, popup/tab và iframe — những kỹ thuật cho dự án thật.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 9** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Đến đây là lúc rời khỏi mấy form login đơn giản và đối mặt với những thứ "đời thực": tái sử dụng phiên đăng nhập, tải file, giả lập vị trí, mock API, nhiều người dùng cùng lúc, popup, và iframe. Đây là những kỹ thuật tạo nên khác biệt giữa "biết dùng" và "dùng được trong dự án thật".
+
+## 1. Quản lý trạng thái đăng nhập (Authentication State)
+
+Vấn đề: nếu mỗi test đều phải đăng nhập lại qua UI, bạn lãng phí 5–10 giây mỗi test. Giải pháp: **đăng nhập một lần, lưu state, tái dùng cho mọi test**.
+
+**Lưu state đăng nhập:**
+
+```ts
+// auth.setup.ts - chạy MỘT lần trước tất cả test
+import { test as setup } from '@playwright/test';
+
+const authFile = 'playwright/.auth/user.json';
+
+setup('authenticate', async ({ page }) => {
+  await page.goto('/login');
+  await page.getByLabel('Email').fill('user@example.com');
+  await page.getByLabel('Password').fill('SecurePass123');
+  await page.getByRole('button', { name: 'Log in' }).click();
+
+  // Chờ login thành công
+  await page.waitForURL('/dashboard');
+
+  // Lưu state đăng nhập ra file
+  await page.context().storageState({ path: authFile });
+});
+```
+
+**Giải thích:**
+
+- `import { test as setup }` - import `test` nhưng **đổi tên** thành `setup` (cú pháp `as`). Chỉ để code đọc rõ nghĩa hơn: đây là bước thiết lập, không phải test thường.
+- `const authFile = 'playwright/.auth/user.json'` - đường dẫn file sẽ chứa state (cookie, localStorage...).
+- `page.waitForURL('/dashboard')` - chờ tới khi URL chuyển sang `/dashboard`, tức đăng nhập đã xong. Khác với assertion, đây là lệnh *chờ* tường minh trước khi lưu state.
+- `page.context().storageState({ path: authFile })` - đây là mấu chốt: lấy `context` hiện tại, xuất toàn bộ **storage state** (tất cả cookie + localStorage) ra file JSON. File này chính là "chứng minh thư" đã đăng nhập.
+
+**Tái dùng state:**
+
+```ts
+// playwright.config.ts
+export default defineConfig({
+  projects: [
+    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+      dependencies: ['setup'],
+    },
+  ],
+});
+```
+
+**Giải thích:**
+
+- Project `setup` với `testMatch: /.*\.setup\.ts/` - chỉ chạy các file đuôi `.setup.ts` (tức file đăng nhập ở trên).
+- Project `chromium` có `storageState: '...user.json'` - mọi test trong project này **khởi động với state đã đăng nhập sẵn**, khỏi login lại.
+- `dependencies: ['setup']` - khai báo phụ thuộc: project `chromium` chỉ chạy **sau khi** project `setup` xong. Nhờ vậy file auth luôn được tạo trước khi test cần nó.
+
+> **Lợi ích:** Pattern này tiết kiệm vài giây mỗi test. Với suite 1000 test, đó là hàng giờ đồng hồ. Đây là một trong những tối ưu đáng giá nhất bạn có thể làm.
+
+## 2. Tải file (Download)
+
+```ts
+test('download report', async ({ page }) => {
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByText('Download Report').click(),
+  ]);
+
+  const path = await download.path();
+  console.log('Downloaded to:', path);
+
+  await download.saveAs('/downloads/' + download.suggestedFilename());
+
+  expect(download.suggestedFilename()).toContain('report.pdf');
+});
+```
+
+**Giải thích - đoạn `Promise.all` rất quan trọng:**
+
+- `Promise.all([waitForEvent('download'), click()])` - chạy **đồng thời** hai việc: *bắt đầu lắng nghe* sự kiện download **và** click nút. Vì sao phải đồng thời? Vì nếu bạn click *trước rồi mới* lắng nghe, sự kiện download có thể đã bắn ra trước khi bạn kịp lắng nghe → bỏ lỡ. Đây là pattern chuẩn cho mọi sự kiện "xảy ra do một action gây ra".
+- `const [download] = ...` - destructuring để lấy kết quả phần tử đầu (`waitForEvent` trả về object `download`).
+- `download.path()` - đường dẫn tạm nơi file được tải về.
+- `download.saveAs(...)` - lưu file ra vị trí mình muốn. `download.suggestedFilename()` là tên file gốc server đề xuất.
+- `expect(...).toContain('report.pdf')` - kiểm tra tên file chứa "report.pdf".
+
+## 3. Upload file
+
+```ts
+// Một file
+await page.getByLabel('Upload document').setInputFiles('contract.pdf');
+
+// Nhiều file
+await page.getByLabel('Upload photos').setInputFiles([
+  'photo1.jpg', 'photo2.jpg', 'photo3.jpg',
+]);
+
+// Xóa file đã chọn
+await page.getByLabel('Upload').setInputFiles([]);
+```
+
+`setInputFiles([])` với mảng rỗng = bỏ chọn hết file. Hữu ích khi test luồng "chọn nhầm rồi xóa".
+
+## 4. Test theo vị trí (Geolocation)
+
+```ts
+test('location-based features', async ({ context, page }) => {
+  await context.grantPermissions(['geolocation']);
+
+  await context.setGeolocation({ latitude: 40.7128, longitude: -74.0060 });
+
+  await page.goto('/stores');
+
+  await expect(page.getByText('Stores near you')).toBeVisible();
+  await expect(page.getByText('New York, NY')).toBeVisible();
+});
+```
+
+**Giải thích:**
+
+- Lưu ý fixture ở đây là `{ context, page }` - ta cần cả `context` vì geolocation là cấu hình cấp context.
+- `context.grantPermissions(['geolocation'])` - cấp quyền truy cập vị trí (mô phỏng việc người dùng bấm "Allow"). Không có bước này, trình duyệt sẽ chặn.
+- `context.setGeolocation({ latitude, longitude })` - đặt tọa độ giả. Ở đây là New York. App sẽ "tưởng" người dùng đang ở đó.
+- Phần còn lại kiểm tra app hiển thị nội dung theo vị trí.
+
+## 5. Mock API response
+
+```ts
+test('mock API response', async ({ page }) => {
+  await page.route('**/api/users', route => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 1, name: 'Alice', role: 'Admin' },
+        { id: 2, name: 'Bob', role: 'User' },
+      ]),
+    });
+  });
+
+  await page.goto('/users');
+
+  await expect(page.getByText('Alice')).toBeVisible();
+  await expect(page.getByText('Bob')).toBeVisible();
+});
+```
+
+Như đã giới thiệu ở Chapter 4: `page.route(pattern, handler)` chặn request khớp pattern, `route.fulfill(...)` trả dữ liệu giả mà không chạm server thật. Ở đây ta ép API `/api/users` luôn trả về Alice và Bob, rồi kiểm tra UI hiển thị đúng. Cách này giúp test ổn định và độc lập backend.
+
+## 6. Nhiều browser context (multi-user)
+
+```ts
+test('multi-user scenario', async ({ browser }) => {
+  // Người dùng 1: Admin
+  const adminContext = await browser.newContext({ storageState: 'admin-auth.json' });
+  const adminPage = await adminContext.newPage();
+
+  // Người dùng 2: User thường
+  const userContext = await browser.newContext({ storageState: 'user-auth.json' });
+  const userPage = await userContext.newPage();
+
+  // Admin tạo tài nguyên
+  await adminPage.goto('/admin/resources');
+  await adminPage.getByRole('button', { name: 'Create' }).click();
+
+  // User thấy tài nguyên mới
+  await userPage.goto('/resources');
+  await expect(userPage.getByText('New Resource')).toBeVisible();
+
+  // Dọn dẹp
+  await adminContext.close();
+  await userContext.close();
+});
+```
+
+**Giải thích:**
+
+- Fixture ở đây là `{ browser }` (không phải `page`) - vì ta cần tự tạo nhiều context.
+- Mỗi `browser.newContext({ storageState })` tạo một phiên cô lập với danh tính riêng (admin / user thường). Như đã nói ở Chapter 4, các context không thấy session của nhau - đúng cái ta cần để giả lập hai người dùng.
+- Admin thao tác trên `adminPage`, user kiểm tra trên `userPage` - song song trong cùng một trình duyệt.
+- `adminContext.close()` / `userContext.close()` - **tự dọn dẹp**. Khi tự tạo context, bạn có trách nhiệm đóng nó (khác với fixture `page` được Playwright tự dọn).
+
+Đây là cách test các tính năng cộng tác, phân quyền, real-time - những thứ rất khó test bằng tool khác.
+
+## 7. Xử lý popup / tab mới
+
+```ts
+test('popup window', async ({ context, page }) => {
+  const [popup] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByText('Open Terms').click(),
+  ]);
+
+  await popup.waitForLoadState();
+
+  await expect(popup.getByRole('heading')).toHaveText('Terms of Service');
+  await popup.getByRole('button', { name: 'Accept' }).click();
+
+  await expect(page.getByText('Terms Accepted')).toBeVisible();
+});
+```
+
+**Giải thích:**
+
+- Lại là pattern `Promise.all` như phần download: vừa lắng nghe sự kiện `'page'` (một tab/cửa sổ mới mở ra) vừa click nút mở popup.
+- `context.waitForEvent('page')` trả về object `popup` - chính là Page của tab mới.
+- `popup.waitForLoadState()` - chờ popup load xong.
+- Từ đây bạn thao tác trên `popup` y như một page bình thường. Sau khi Accept, popup đóng và ta quay lại kiểm tra trang chính (`page`).
+
+## 8. Làm việc với iframe
+
+```ts
+test('iframe interaction', async ({ page }) => {
+  await page.goto('/payment');
+
+  const paymentFrame = page.frameLocator('iframe[name="payment"]');
+
+  await paymentFrame.getByLabel('Card Number').fill('4242424242424242');
+  await paymentFrame.getByLabel('Expiry').fill('12/25');
+  await paymentFrame.getByLabel('CVC').fill('123');
+  await paymentFrame.getByRole('button', { name: 'Pay' }).click();
+
+  await expect(page.getByText('Payment Successful')).toBeVisible();
+});
+```
+
+**Giải thích:**
+
+- iframe là "trang trong trang" - locator thường của `page` **không** xuyên vào được bên trong iframe. Bạn phải dùng `page.frameLocator(...)`.
+- `page.frameLocator('iframe[name="payment"]')` - lấy "tay cầm" tới iframe có thuộc tính `name="payment"`.
+- Sau đó, mọi locator gọi trên `paymentFrame` sẽ tìm **bên trong** iframe đó. Phần tử ngoài iframe (như thông báo "Payment Successful") thì gọi trên `page` như bình thường.
+
+> **Thực tế:** Cổng thanh toán (Stripe, các payment gateway) rất hay nhúng form trong iframe để cách ly bảo mật. Nắm `frameLocator` là bắt buộc nếu bạn test e-commerce hay fintech.

@@ -1,0 +1,95 @@
+---
+title: 'Playwright Handbook — Chapter 1: Introduction to Playwright'
+summary: Playwright là gì và chiến lược kiểm thử The Testing Trophy. Mở đầu series Playwright + TypeScript cho người mới bắt đầu.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> Đây là **Chapter 1** trong series **Playwright + TypeScript: Nguyen's Handbook** — series từ A tới Á cho người mới bắt đầu với Playwright. Mong sẽ giúp ích được các bạn có đam mê với automation test.
+
+# Playwright là gì và chiến lược kiểm thử The Testing Trophy
+
+## 1. Playwright
+
+- Playwright là một framework hiện đại và open-source được phát triển bởi Microsoft cho việc kiểm thử end-to-end web apps.
+- Ra mắt vào năm 2020 và được phát triển bởi team từng xây dựng Puppeteer ở Google.
+
+## 2. The Testing Pyramid
+
+Trước đây, kiểm thử phần mềm truyền thống tuân theo mô hình **"Testing Pyramid"**:
+
+![Testing Pyramid](/playwright-handbook/ch01/img-0.png)
+
+- 70% **unit tests**
+- 20% **integration tests**
+- 10% **E2E tests**
+
+Cách tiếp cận này được thiết kế trong bối cảnh các bài test E2E còn chậm và không ổn định.
+
+## 3. The Testing Trophy
+
+### 3.1 What is The Testing Trophy?
+
+**Testing Trophy** là một mô hình chiến lược kiểm thử phần mềm được đề xuất bởi Kent C. Dodds, nhằm hướng dẫn cách phân bổ effort viết test sao cho hiệu quả hơn so với mô hình cũ.
+
+Mô hình **Testing Trophy** đại diện cho một cách tiếp cận tốt hơn:
+
+![Testing Trophy](/playwright-handbook/ch01/img-1.png)
+
+- 10% **Static Analysis** (TypeScript, ESLint)
+- 20% **Unit Tests** (business logic)
+- 50% **Integration Tests** (component + API)
+- 20% **E2E Tests** (các user flow quan trọng)
+
+### 3.2 Why The Testing Trophy wins?
+
+![Why Testing Trophy wins](/playwright-handbook/ch01/img-2.png)
+
+Testing Trophy tốt hơn Testing Pyramid vì:
+
+- **Bắt đúng lỗi thực tế**: bug thường nằm ở *integration*, không phải unit
+- **Framework/Tool hiện đại** giúp E2E nhanh & ổn định hơn
+- **Ít test hơn nhưng "chất lượng" hơn** → độ tin cậy cao hơn
+- **Test giống cách user dùng app**, không chỉ test từng hàm riêng lẻ
+
+**Trophy → test đúng chỗ + hiệu quả hơn + sát thực tế hơn**
+
+## 4. Tại sao là Playwright?
+
+Playwright hỗ trợ **tất cả các engine trình duyệt chính**, và Playwright đi kèm sẵn các phiên bản trình duyệt cụ thể → đảm bảo hành vi **đồng nhất trên mọi môi trường**, tránh lỗi kiểu *"it worked on my side"*:
+
+- **Chromium** – Chrome, Edge, Opera, Brave
+- **Firefox** – Mozilla Firefox
+- **WebKit** – Safari (desktop và iOS)
+
+Playwright có cơ chế auto-wait trước khi thực hiện event, đảm bảo element đã sẵn sàng:
+
+- Có trong DOM
+- Hiển thị trên màn hình
+- Ổn định (không đang animation)
+- Có thể nhận event (không bị che)
+- Được enable (không bị disable)
+
+Giúp test **ổn định hơn, ít flaky hơn, không cần viết wait thủ công**. Auto-wait giúp giảm 80% flaky test issues thay vì sử dụng `sleep()` hay timeouts.
+
+## 5. Playwright vs Selenium, Cypress, Puppeteer
+
+- vs Selenium:
+    - Tốc độ: Playwright nhanh hơn 20-50%
+    - Setup: Playwright tự động download browser engine
+    - API: Playwright hỗ trợ cơ chế async/await (sử dụng TypeScript)
+    - Playwright có built-in auto-wait
+- vs Cypress:
+    - Browser support: Playwright hỗ trợ WebKit
+    - Multi-tab: Playwright hỗ trợ dựa trên context, tab, page
+    - Mobile support: Playwright hỗ trợ các mobile browser
+    - Ngôn ngữ: Python, **TypeScript**, Java,…
+- vs Puppeteer:
+    - Browser support: Playwright hỗ trợ Firefox + WebKit
+    - Playwright sinh ra để phục vụ cho mục đích testing, không phải crawl
+    - Selectors: Playwright dùng user-facing locators.
+
+Vậy cho mục đích hỗ trợ test cross-browser, mobile testing với độ tin cậy cao, Playwright dường như là 1 lựa chọn không tồi.

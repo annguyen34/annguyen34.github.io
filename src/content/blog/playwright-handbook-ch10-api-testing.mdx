@@ -1,0 +1,200 @@
+---
+title: 'Playwright Handbook — Chapter 10: API Testing với Playwright'
+summary: Dùng request context để test REST/GraphQL, pattern hybrid UI + API theo quy tắc 80/20, và setup dữ liệu qua API.
+postLayout: column
+date: '2026-06-29'
+draft: false
+cover: '@/assets/playwright/image.png'
+tags: [playwright, typescript, testing]
+---
+
+> **Chapter 10** trong series **Playwright + TypeScript: Nguyen's Handbook**.
+
+Nhiều người không biết Playwright cũng là một công cụ test API khá tốt. Nó có một `request` context để gọi HTTP trực tiếp - không cần mở trình duyệt. Và khi kết hợp API với UI, bạn có một pattern (hybrid) giúp test vừa nhanh vừa tập trung.
+
+## 1. REST API Testing
+
+**GET cơ bản:**
+
+```ts
+test('GET users', async ({ request }) => {
+  const response = await request.get('https://api.example.com/users');
+
+  expect(response.status()).toBe(200);
+
+  const users = await response.json();
+  expect(users).toBeInstanceOf(Array);
+  expect(users[0]).toHaveProperty('id');
+  expect(users[0]).toHaveProperty('email');
+});
+```
+
+**Giải thích:**
+
+- Fixture ở đây là `{ request }` - đây là **APIRequestContext**, dùng để gọi HTTP mà không cần `page`. Nhanh và nhẹ vì không khởi động trình duyệt.
+- `request.get(url)` - gửi GET request, trả về object `response`.
+- `response.status()` - mã HTTP (200, 404...). `expect(...).toBe(200)` kiểm tra thành công.
+- `response.json()` - parse body thành object/array JS (phải `await`).
+- `expect(users).toBeInstanceOf(Array)` - khẳng định kết quả là một mảng.
+- `expect(users[0]).toHaveProperty('id')` - phần tử đầu có trường `id`. `toHaveProperty` kiểm tra sự tồn tại của thuộc tính, hữu ích để xác minh "hợp đồng" (contract) của API.
+
+**POST:**
+
+```ts
+test('POST create user', async ({ request }) => {
+  const response = await request.post('https://api.example.com/users', {
+    data: {
+      name: 'John Doe',
+      email: 'john@example.com',
+      role: 'user',
+    },
+  });
+
+  expect(response.status()).toBe(201);
+
+  const user = await response.json();
+  expect(user.name).toBe('John Doe');
+  expect(user).toHaveProperty('id');
+});
+```
+
+**Giải thích:**
+
+- `request.post(url, { data: {...} })` - gửi POST. Trường `data` là body; Playwright tự serialize thành JSON và set header `Content-Type: application/json`.
+- `expect(response.status()).toBe(201)` - 201 (Created) là mã chuẩn khi tạo tài nguyên thành công.
+- Kiểm tra response trả về đúng tên và đã có `id` do server cấp.
+
+**Gửi kèm header xác thực:**
+
+```ts
+test('authenticated request', async ({ request }) => {
+  const token = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+
+  const response = await request.get('/api/admin/users', {
+    headers: {
+      'Authorization': token,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  expect(response.status()).toBe(200);
+});
+```
+
+`headers` cho phép gắn token Bearer (hoặc bất kỳ header nào). Đây là cách test các endpoint cần đăng nhập.
+
+## 2. GraphQL API Testing
+
+```ts
+test('GraphQL query', async ({ request }) => {
+  const query = `
+    query GetUser($id: ID!) {
+      user(id: $id) {
+        id
+        name
+        email
+        posts { title }
+      }
+    }
+  `;
+
+  const response = await request.post('/graphql', {
+    data: { query, variables: { id: '123' } },
+  });
+
+  const result = await response.json();
+  expect(result.data.user.name).toBe('Alice');
+  expect(result.data.user.posts).toHaveLength(5);
+});
+```
+
+**Giải thích:**
+
+- GraphQL khác REST ở chỗ: gần như mọi thứ đi qua **một endpoint** (`/graphql`) bằng POST. Cái thay đổi là *query* trong body.
+- `query` là một template string (dấu backtick) chứa truy vấn GraphQL. `$id: ID!` khai báo biến `id` bắt buộc.
+- Trong `data`, ngoài `query` còn có `variables: { id: '123' }` - truyền giá trị cho biến `$id`. Tách biến ra khỏi query là cách làm chuẩn (tránh nối chuỗi, an toàn hơn).
+- Response GraphQL luôn bọc trong `result.data.<tên field>`. `result.data.user.posts` là mảng bài viết; `toHaveLength(5)` kiểm tra có đúng 5 bài.
+
+## 3. Hybrid UI + API Testing - quy tắc 80/20
+
+Ý tưởng: **dùng API cho 80% phần thiết lập** (tạo user, nạp dữ liệu, set trạng thái), **dùng UI cho 20% thật sự muốn test**.
+
+Vì sao?
+
+- **Tốc độ:** gọi API ~200ms; đăng nhập qua UI ~5 giây.
+- **Ổn định:** API không có animation, không loading spinner gây flaky.
+- **Tập trung:** bạn test đúng *hành vi UI* mình quan tâm, không phí công lặp lại phần setup.
+
+```ts
+test('purchase with API setup', async ({ request, page }) => {
+  // Bước 1: Tạo user qua API (~200ms)
+  const userResponse = await request.post('/api/users', {
+    data: { name: 'Test User', accountNumber: '123456789', balance: 10000 },
+  });
+  const user = await userResponse.json();
+
+  // Bước 2: Lấy token qua API (~100ms)
+  const authResponse = await request.post('/api/auth/login', {
+    data: { accountNumber: '123456789', pin: '1234' },
+  });
+  const { token } = await authResponse.json();
+
+  // Bước 3: Nhét token vào trình duyệt (tức thì)
+  await page.context().addCookies([{
+    name: 'auth_token',
+    value: token,
+    domain: 'localhost',
+    path: '/',
+  }]);
+
+  // Bước 4: Test UI - chỉ tập trung luồng mua hàng (~5s)
+  await page.goto('/shop');
+  await page.getByRole('button', { name: 'Buy Now' }).click();
+  await page.getByRole('button', { name: 'Confirm Purchase' }).click();
+
+  await expect(page.getByText('Purchase Successful')).toBeVisible();
+
+  // Bước 5: Xác minh lại qua API
+  const balanceResponse = await request.get(`/api/users/${user.id}/balance`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { balance } = await balanceResponse.json();
+  expect(balance).toBeLessThan(10000);
+});
+```
+
+**Giải thích luồng:**
+
+- Fixture `{ request, page }` - dùng cả hai: `request` cho phần API, `page` cho phần UI.
+- **Bước 1–2:** Thay vì click chuột tạo user rồi đăng nhập qua giao diện (chậm, dễ vỡ), ta gọi thẳng API. `const { token } = await authResponse.json()` dùng destructuring để lấy riêng trường `token`.
+- **Bước 3:** `page.context().addCookies([...])` - nhét token vào cookie của trình duyệt. Nhờ vậy khi `page.goto('/shop')`, app "tưởng" người dùng đã đăng nhập sẵn. Cần khai báo `domain` và `path` để cookie áp đúng phạm vi.
+- **Bước 4:** Đây mới là phần ta *thật sự muốn test* - luồng mua hàng trên UI.
+- **Bước 5:** Sau khi mua, ta lại dùng API để xác minh số dư đã giảm (`toBeLessThan(10000)`). Kiểm tra chéo qua API thường nhanh và đáng tin hơn là đi đào lại con số trên UI.
+
+> **Kết quả:** Test kiểu này có thể rút từ ~15 giây xuống ~6 giây. Nhân với hàng nghìn test, đó là khác biệt giữa "suite chạy hàng giờ" và "suite chạy vài phút".
+
+## 4. Chiến lược setup dữ liệu qua API
+
+Gom việc tạo/dọn dữ liệu vào hook:
+
+```ts
+// Tạo dữ liệu trước mỗi test
+test.beforeEach(async ({ request }) => {
+  await request.post('/api/products', {
+    data: [{ name: 'Laptop', price: 999 }, { name: 'Mouse', price: 29 }],
+  });
+  await request.post('/api/categories', {
+    data: [{ name: 'Electronics' }, { name: 'Accessories' }],
+  });
+});
+
+// Dọn dữ liệu sau mỗi test
+test.afterEach(async ({ request }) => {
+  await request.delete('/api/test-data');
+});
+```
+
+**Giải thích:**
+
+- `beforeEach` nạp sẵn sản phẩm và danh mục qua API trước mỗi test - nhanh hơn nhiều so với tạo qua UI.
+- `afterEach` gọi `request.delete('/api/test-data')` để **dọn sạch** sau mỗi test. Bước này cực kỳ quan trọng: nó giữ cho các test **độc lập** với nhau, tránh tình trạng dữ liệu của test này làm hỏng test kia. (Chủ đề global teardown sẽ nói thêm ở Chapter 16.)
