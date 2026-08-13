@@ -1,0 +1,423 @@
+---
+title: Dùng Claude Code như dân chơi pro
+summary: Làm sao để dùng Claude Code như 1 dân chơi đích thực
+postLayout: column
+date: '2026-08-13'
+cover: '@/assets/use-claude-code-like-a-pro/cover.png'
+draft: false
+tags: [claude-code]
+---
+
+Phần lớn tutorial về Claude Code chỉ dừng ở mức "cài vào rồi gõ chat". Làm vậy chỉ khai thác được khoảng 20% khả năng của tool.
+
+80% còn lại nằm ở việc hiểu context, mode, subagent và hook liên kết với nhau ra sao. Mấy thứ này có ghi trong docs hết, nhưng ai rảnh đọc.
+
+---
+
+## Claude Code là gì (in a nutshell)
+
+Claude Code là CLI agent của Anthropic. Gõ `claude` trong terminal, nó đọc file, chạy lệnh shell, sửa code, gọi tool.
+
+Có extension cho VS Code và bản desktop app, nhưng phần thú vị nhất vẫn nằm ở CLI.
+
+---
+
+## Context và cache - cái đòn bẩy to nhất
+
+Đây có lẽ là thứ ảnh hưởng nhiều nhất tới chi phí và độ trễ, mà ai chưa dùng API trực tiếp thì gần như không biết.
+
+**Prompt cache có TTL 5 phút.** Bạn gửi tin nhắn → Anthropic cache phần prefix của conversation. Tin nhắn tiếp theo gửi trong vòng 5 phút thì phần prefix đó gần như miễn phí.
+
+Nhưng nếu bạn rời máy đi họp rồi quay lại sau 20 phút → toàn bộ conversation bị đọc lại từ đầu, không cache. Chậm hơn, tốn hơn.
+
+Ý nghĩa thực tế: **sắp rời máy thì kết thúc lượt ở một điểm dừng gọn gàng.** Đừng để dở dang một cái plan nửa vời rồi đi ăn trưa.
+
+Có bản cache mở rộng 1 tiếng, nhưng phải bật thủ công. Mặc định vẫn là 5 phút.
+
+Và cái ràng buộc lớn hơn cache: **context window đầy tới đâu, chất lượng tụt tới đó.** Claude không "quên" một cách lịch sự, nó bắt đầu bỏ sót instruction bạn dặn từ đầu session. Nên mấy phần dưới đây gần như đều xoay quanh một câu hỏi: giữ context sạch bằng cách nào.
+
+Gõ `/context` để xem hiện tại đang chiếm bao nhiêu, cái gì đang đớp context window.
+
+---
+
+## `/compact` nhận được instruction
+
+`/compact` trơn sẽ tóm tắt conversation rồi thay toàn bộ lịch sử bằng bản tóm tắt đó. Nó lossy, và cơ chế tóm tắt mặc định hay bỏ nhầm chỗ quan trọng.
+
+Cách tốt hơn - dặn trước cái gì đáng giữ:
+
+```shell
+/compact giữ lại quyết định refactor phần auth và log lỗi của failing test, bỏ phần liệt kê file
+```
+
+Dùng lúc context sắp đầy, đừng đợi đầy rồi mới dùng.
+
+Muốn khỏi phải nhớ thì nhét luôn vào `CLAUDE.md`: *"Khi compact, luôn giữ danh sách file đã sửa và các lệnh test."*
+
+### Ép compact giữ lại state bằng hook
+
+Cả hai cách trên vẫn là **nhờ** model giữ hộ. Muốn chắc chắn thì phải nhờ hook.
+
+Nói trước cho khỏi mất công: Claude Code có `PreCompact` và `PostCompact` thật, nhưng **`PreCompact` không truyền instruction vào được** - nó chỉ chặn được compact (exit 2), không có field nào để nhét "nhớ giữ cái này" vào cả.
+
+Combo đúng nằm ở chỗ khác: **đừng cố sửa bản tóm tắt, hãy tự bơm lại state sau khi compact xong.**
+
+Chìa khoá là `SessionStart` có matcher `compact`, tức nó bắn sau mỗi lần nén context. Và `SessionStart` thuộc nhóm event mà **stdout khi exit 0 được nhét thẳng vào context** (cùng `UserPromptSubmit`). `PostCompact` thì không có đặc quyền này.
+
+Vậy nên: `PreCompact` chụp state ra file, `SessionStart` bơm ngược vào.
+
+```json
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ echo \"branch: $(git branch --show-current)\"; git diff --stat; } > /tmp/claude-state.txt"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '--- State trước khi compact ---'; cat /tmp/claude-state.txt"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Bản tóm tắt có bỏ sót gì thì mấy dòng này vẫn còn. Không phụ thuộc vào việc model có nhớ giữ hay không.
+
+Chi tiết về hook mình viết riêng ở [bài này](/blog/claude-code-hooks).
+
+### `/clear` không phải là `/compact`
+
+| Lệnh | Làm gì | Dùng khi nào |
+| --- | --- | --- |
+| `/compact` | Tóm tắt lại, giữ tinh thần cuộc hội thoại | Vẫn đang làm task đó, chỉ là dài quá |
+| `/clear` | Xoá sạch, làm lại từ đầu | Chuyển sang việc khác hẳn |
+
+Bắt đầu task mới với slate sạch giúp các prompt sau nhanh hơn, và tránh việc mấy bước đi sai trước đó ảnh hưởng ngược lại câu trả lời.
+
+### Context có thể "trôi"
+
+Nếu Claude đi sai hướng và bị bạn sửa lại, **cái hướng sai đó vẫn còn nằm trong conversation**, vẫn ảnh hưởng đến việc nó pattern-match sau này.
+
+Rule of thumb: sửa nó 2 lần cùng một chỗ mà vẫn sai → đừng sửa lần 3. `/clear` rồi viết lại prompt mới với những gì vừa rút ra được. Session sạch + prompt tốt gần như luôn thắng session dài + một đống correction.
+
+---
+
+## `/rewind` - cái nút undo mà ít người biết
+
+Mỗi prompt bạn gửi đi đều tạo một checkpoint. Nhấn `Esc` hai lần (hoặc gõ `/rewind`) để mở menu, rồi chọn:
+
+- Rollback conversation
+- Rollback code
+- Rollback cả hai
+- Hoặc tóm tắt từ một điểm nào đó trở đi
+
+Cái hay là nó đổi luôn cách làm việc: thay vì cân nhắc kỹ từng bước, bạn cứ để nó thử một hướng rủi ro. Không được thì rewind, thử hướng khác.
+
+**Nhưng nhớ:** checkpoint chỉ track thay đổi qua file editing tool của Claude. Thay đổi do lệnh Bash gây ra thì **không** được ghi lại. Nó không thay thế git được đâu.
+
+Còn `Esc` một lần thì chỉ dừng Claude giữa chừng, context vẫn giữ nguyên - dùng khi thấy nó bắt đầu đi lạc.
+
+---
+
+## Resume lại session
+
+Conversation được lưu local hết, nên task kéo dài qua nhiều buổi thì khỏi phải kể lại từ đầu:
+
+```shell
+claude --continue   # resume session gần nhất trong thư mục này
+claude --resume     # hiện list để chọn
+```
+
+Trong session đang chạy thì gõ `/resume`. Đặt tên cho session bằng `/rename` (kiểu `oauth-migration`) để sau này còn tìm ra.
+
+Mỗi session là một file `.jsonl` trong `~/.claude/projects/`.
+
+---
+
+## Permission mode
+
+`Shift+Tab` để đổi mode giữa session. Vòng lặp là: `default` → `acceptEdits` → `plan` (cộng thêm `auto` hoặc `bypassPermissions` nếu bạn bật).
+
+**Plan mode** là read-only. Đọc file, grep, chạy lệnh shell an toàn được, nhưng không ghi không sửa. Status bar hiện `⏸ plan mode on`.
+
+Đây là mode nên dùng cho bất cứ việc gì bạn **chưa hiểu rõ hoàn toàn** - nó ép phải điều tra trước khi đụng vào code. Plan xong ưng ý thì `Shift+Tab` để thoát ra và thực thi. (`Ctrl+G` để mở plan trong editor sửa tay trước khi nó chạy.)
+
+Nhiều người ít dùng plan mode vì phản xạ là "cứ hỏi rồi để nó làm luôn". Cách đó ổn với thay đổi nhỏ. Với việc ảnh hưởng lớn thì 10 phút ở plan mode tiết kiệm cả tiếng dọn dẹp.
+
+Ngược lại: **nếu bạn mô tả được cái diff trong một câu thì bỏ qua plan đi.** Đổi tên biến mà cũng plan thì phí thời gian.
+
+**Accept-edits mode** tự động accept mọi thay đổi file, không hỏi lại từng cái. Hợp với refactor lớn mà kiểu gì cuối cùng cũng review diff tổng.
+
+**Auto mode** thì có hẳn một model classifier đứng ra duyệt lệnh, chỉ chặn mấy thứ có mùi rủi ro (leo thang quyền, đụng hạ tầng lạ). Hợp khi bạn tin hướng đi chung nhưng không muốn bấm Enter 40 lần.
+
+```shell
+claude --permission-mode auto -p "fix all lint errors"
+```
+
+---
+
+## Effort level
+
+Chỗ này nhiều bài blog cũ ghi sai, nên nói cho rõ.
+
+Ngày xưa người ta gõ mấy keyword kiểu `think`, `think hard`, `ultrathink` trong prompt để tăng thinking budget. Giờ nó có lệnh riêng:
+
+```shell
+/effort high
+```
+
+Các mức: `low`, `medium`, `high`, `xhigh`, `max` (và `auto` để trả về mặc định của model). `Option+T` / `Alt+T` để bật tắt extended thinking.
+
+Đẩy effort lên cho: quyết định kiến trúc, debug khó, hoặc mấy chỗ mà Claude từng trả lời sai một cách **rất tự tin**.
+
+Đừng đẩy lên cho việc kiểu "đổi tên biến này" - tốn token mà kết quả y chang.
+
+---
+
+## Subagent để bảo vệ context chính
+
+Subagent chạy độc lập, **có context window riêng**. Xong việc, bạn nhận lại bản tóm tắt, không phải toàn bộ transcript.
+
+Quan trọng vì mấy thao tác này làm phình context chính cực nhanh:
+
+- Grep lớn trên cả repo
+- Đọc 15 file chỉ để tìm 1 thông tin
+- Research trên web, fetch cả chục trang
+- Lệnh `find` dump ra hàng nghìn đường dẫn
+
+Cứ nói thẳng:
+
+```shell
+Dùng subagent điều tra xem hệ thống auth của mình handle token refresh thế nào
+```
+
+Hai pattern đáng áp dụng:
+
+**1. Subagent song song.** Có 3 câu hỏi độc lập thì launch 3 subagent trong cùng một message, chúng chạy đồng thời. Launch tuần tự là phí thời gian.
+
+**2. Tin nhưng phải verify.** Bản tóm tắt của subagent là những gì nó *định* làm. Nó báo đã sửa file thì chạy `git diff` kiểm tra. Subagent thỉnh thoảng báo cáo thành công cho một implementation làm dở dang. **Coi báo cáo đó là giả thuyết, không phải sự thật.**
+
+Ngoài ra subagent còn dùng để review được. Context sạch, không bị thiên vị bởi chính đoạn code nó vừa viết ra:
+
+```shell
+Dùng subagent review cái diff rate limiter này, tìm edge case và race condition
+```
+
+---
+
+## Vài shortcut nhỏ mà đổi cả workflow
+
+`!` chạy thẳng một lệnh shell, output vào context luôn:
+
+```shell
+! gcloud auth login
+! git log --oneline -20
+```
+
+Tiện cho mấy lệnh tương tác mà bình thường phải mở terminal khác. Output trở thành một phần của conversation nên Claude hành động dựa trên đó được ngay.
+
+`@đường-dẫn/file` kéo file vào context inline, khỏi nhờ Claude đọc hộ:
+
+```shell
+Refactor @src/auth/session.ts để dùng token format mới từ @src/auth/tokens.ts
+```
+
+Trỏ vào thư mục thì nó ra file listing, không phải nội dung.
+
+`#` lưu nhanh một dòng vào CLAUDE.md, nó sẽ hỏi lưu vào file nào:
+
+```shell
+# không sửa file trong generated/
+# project này dùng pnpm, không phải npm
+```
+
+`/btw` để hỏi câu phụ mà **không** ghi vào lịch sử hội thoại. Đang refactor dở mà chợt muốn hỏi "ủa cái flag này nghĩa là gì" thì dùng cái này, context không phình ra.
+
+`/usage` để xem đang tốn bao nhiêu.
+
+---
+
+## CLAUDE.md phân tầng
+
+File CLAUDE.md tự động load làm context **mỗi session**. Phân tầng:
+
+| Vị trí | Load khi nào |
+| --- | --- |
+| `~/.claude/CLAUDE.md` | Mọi session, mọi nơi |
+| `./CLAUDE.md` ở root | Trong project này (commit vào repo) |
+| `./CLAUDE.local.md` | Riêng bạn, project này (nhớ gitignore) |
+| `./src/payments/CLAUDE.md` | Khi Claude đọc file trong thư mục đó |
+
+Nên tận dụng phân tầng. Cái gì đặc thù cho một module thì để ở `src/payments/CLAUDE.md`, đừng nhét hết vào root. Sở thích cá nhân kiểu "giải thích cho tôi bằng analogy TypeScript" thì để file cấp user, đừng commit vào repo chung.
+
+Import file khác cũng được:
+
+```markdown
+Xem @README.md để hiểu tổng quan project.
+- Git workflow: @docs/git-instructions.md
+```
+
+Dùng CLAUDE.md cho những thứ bạn **phải giải thích đi giải thích lại**:
+
+- Dùng logger có sẵn, đừng import thêm cái mới
+- Test nằm ở `tests/`, không nằm cạnh source
+
+Chạy `/init` để nó tự sinh bản nháp từ codebase của bạn.
+
+**Cảnh báo quan trọng:** CLAUDE.md dài quá thì Claude bỏ qua một nửa, vì rule quan trọng bị chìm trong đống nhiễu. Với mỗi dòng, tự hỏi: *"bỏ dòng này đi thì nó có làm sai không?"* Không thì xoá.
+
+Nếu bạn dặn một chuyện mà nó cứ làm sai hoài, thường không phải tại nó cứng đầu - mà tại file quá dài. Cắt bớt, hoặc chuyển thẳng cái rule đó thành **hook**.
+
+---
+
+## Custom slash command
+
+Paste cùng một prompt tới lần thứ hai là biến nó thành slash command được rồi. Bỏ một file markdown vào `.claude/commands/`:
+
+```markdown
+.claude/commands/changelog.md
+
+Generate changelog cho các commit kể từ tag release gần nhất.
+Group theo feat / fix / chore. Có kèm số PR nếu có.
+```
+
+Giờ gõ `/changelog` là chạy. Commit `.claude/commands/` vào repo thì cả team dùng được luôn.
+
+Vài command đáng có: `/review` cho các thay đổi đang pending, `/explain` để giải thích một file, `/test` để viết test cho thay đổi hiện tại.
+
+Lưu ý: **custom command giờ đã gộp vào skill.** File `.claude/commands/deploy.md` và `.claude/skills/deploy/SKILL.md` đều tạo ra `/deploy` và chạy như nhau. File cũ vẫn hoạt động bình thường, khỏi lo. Skill thì có thêm: cả một thư mục để chứa file phụ, và **Claude tự gọi khi thấy liên quan** chứ không cần bạn gõ tay.
+
+---
+
+## Hook cho những việc "luôn phải làm"
+
+CLAUDE.md là thứ Claude **đọc**. Hook là thứ **được harness ép chạy**.
+
+Muốn một hành vi luôn xảy ra bất kể Claude nghĩ gì → đó là việc của hook:
+
+- `PreToolUse` chặn mọi lệnh `rm -rf` ngoài `/tmp`
+- `PostToolUse` tự động format lại file vừa sửa
+- `Stop` chạy `npm run lint` sau mỗi câu trả lời
+
+Nếu từng dặn "sửa xong nhớ chạy test" mà nó quên sau hai câu trả lời - đó là vấn đề của hook, không phải của memory.
+
+Mà lười viết tay thì kêu nó viết hộ: *"Viết cho tôi hook chặn ghi vào thư mục migrations"*.
+
+Chi tiết mình viết riêng ở [bài về Claude Code Hooks](/blog/claude-code-hooks).
+
+---
+
+## Đổi model giữa chừng
+
+`/model` đổi model ngay trong conversation hiện tại.
+
+Pattern phổ biến: **Opus cho thiết kế, debug, mấy đoạn cần reasoning sâu. Sonnet cho khối lượng sửa đổi lớn**, khi tốc độ quan trọng hơn độ sâu. Không cần Opus chỉ để update một trăm đường dẫn import.
+
+Phần lớn mọi người chọn một model từ đầu session rồi dùng xuyên suốt. Khớp model với từng giai đoạn công việc là một trong những cách dễ ăn điểm nhất mà ít ai làm.
+
+---
+
+## Worktree để chạy song song
+
+Git worktree cho phép checkout nhiều branch của cùng một repo vào các thư mục riêng. Với Claude Code, nghĩa là chạy nhiều session trên nhiều branch mà không giẫm chân lên nhau.
+
+Giờ có flag sẵn, khỏi làm tay:
+
+```shell
+claude --worktree feature-auth
+```
+
+Mở terminal khác, chạy lại với tên khác là có session song song thứ hai. (Repo phải có ít nhất một commit thì mới chạy được.)
+
+Cách thủ công vẫn work nếu bạn thích kiểm soát:
+
+```shell
+git worktree add ../task-manager-feature-x feature-x
+cd ../task-manager-feature-x
+claude
+```
+
+Subagent cũng chạy được trong worktree riêng - hữu ích khi muốn cho agent thử một thay đổi rủi ro mà không đụng tới working tree hiện tại.
+
+---
+
+## Chất lượng prompt quan trọng hơn việc chọn model
+
+Đây có lẽ là điều bị đánh giá thấp nhất.
+
+So sánh:
+
+| ❌ | ✅ |
+| --- | --- |
+| "Sửa cái bug session giùm" | "Sửa bug trong `src/auth/session.ts:142`, chỗ `expiresAt` được set theo giây nhưng lại so sánh theo mili-giây" |
+| "Thêm test cho foo.py" | "Viết test cho `foo.py`, cover case user đã logout. Đừng dùng mock." |
+| "Build đang fail" | "Build fail với lỗi này: [paste]. Sửa đúng nguyên nhân gốc, đừng suppress lỗi." |
+
+Câu bên phải cho ra fix đúng ở **bất kỳ model nào**. Câu bên trái thì model thông minh nhất cũng chỉ đoán mò.
+
+Hai pattern đáng dùng thêm:
+
+**1. Nói cho nó biết cái gì KHÔNG nên làm.** Cái này thường có đòn bẩy cao hơn nói nó nên làm gì:
+
+> Đừng refactor code xung quanh, đừng thêm test, đừng đụng vào migration. Chỉ sửa đúng bug ở dòng 142.
+
+Không dặn vậy thì rất dễ nhận lại một đợt "dọn dẹp tiện thể" làm loãng cả diff.
+
+**2. Xin recommendation kèm trade-off, đừng xin plan.** Với câu hỏi mang tính khám phá, "nên tiếp cận X thế nào?" mà trả lời bằng recommendation thì cho một điểm khởi đầu hữu ích. Trả lời bằng plan thì dễ bị commit sớm vào một hướng đi trước khi chắc đó là hướng đúng.
+
+Và với feature lớn, thử để nó phỏng vấn ngược lại bạn:
+
+```shell
+Tôi muốn build [mô tả ngắn]. Hãy phỏng vấn tôi thật kỹ bằng AskUserQuestion tool.
+Hỏi về technical implementation, UI/UX, edge case, trade-off.
+Đừng hỏi mấy câu hiển nhiên, đào vào mấy chỗ khó mà tôi có thể chưa nghĩ tới.
+Hỏi tới khi đủ thì viết spec đầy đủ ra SPEC.md.
+```
+
+Xong thì mở session mới để thực thi. Context sạch, lại có spec viết sẵn để tham chiếu.
+
+---
+
+## Verify trước khi báo xong
+
+Failure mode phổ biến nhất là kiểu "chắc là chạy được" hoặc "nhìn đúng rồi" mà chưa thực sự chạy thử.
+
+Type check và unit test verify được **code**, không verify được **hành vi** của tính năng:
+
+- Sửa UI → mở browser lên xem
+- Sửa endpoint → gọi thử
+- Sửa script → chạy thử
+
+Claude dừng lại khi công việc **trông có vẻ** xong. Không có cái check nào để nó tự chạy thì "trông có vẻ" là tín hiệu duy nhất nó có, và bạn trở thành cái vòng lặp verify - mọi lỗi đều nằm đó chờ bạn phát hiện.
+
+Đưa nó một thứ trả về pass/fail thì vòng lặp tự đóng: nó làm → chạy check → đọc kết quả → sửa tới khi pass.
+
+Mấy mức độ, tuỳ bạn muốn đầu tư bao nhiêu:
+
+| Cách | Hiệu quả |
+| --- | --- |
+| Dặn thẳng trong prompt "chạy test rồi sửa tới khi pass" | Làm được ngay, không cần setup |
+| `/goal` đặt điều kiện, có evaluator check lại sau mỗi turn | Chặt hơn, kéo dài cả session |
+| `Stop` hook chạy check dạng script | Deterministic, chặn luôn không cho kết thúc turn |
+| Subagent review lại trong context sạch | Bắt được cái mà chính nó không tự thấy |
+
+Khi Claude báo xong, hỏi lại **nó đã chạy gì để xác nhận**. Nếu câu trả lời là "tôi đọc code rồi" thì đó không phải verify.
+
+---
+
+## Lời kết
+Hết rồi, không có gì ở đây hết. Xem được tới đây = pro.
+Cảm ơn colleagues ở O (Tr, Th x2, M, K) đã cho mình động lực viết (đơn giản vì mình lười vãi ò). Chúc ae tiếp tục career growth ở O =))).

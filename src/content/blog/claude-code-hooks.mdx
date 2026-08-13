@@ -1,0 +1,382 @@
+---
+title: Claude Code Hooks - bắt AI làm đúng ý mình, không phải "hy vọng" nó làm đúng
+summary: Hook là cách duy nhất để nói "mỗi lần X xảy ra thì Y phải xảy ra" mà chắc chắn 100%. Viết vào CLAUDE.md chỉ là cầu nguyện thôi hehe.
+postLayout: column
+date: '2026-08-13'
+draft: false
+cover: '@/assets/claude-code-hooks/cover.png'
+tags: [claude-code]
+---
+
+Nếu bạn từng:
+
+- Viết vào `CLAUDE.md`: "**LUÔN LUÔN** chạy format sau khi sửa file"
+- Rồi 3 turn sau nó… quên
+- Viết tiếp: "**TUYỆT ĐỐI KHÔNG** đụng vào `.env`"
+- Rồi nó vẫn mở `.env` ra đọc 🤡
+
+Thì bạn cần là **hooks**.
+
+---
+
+## Hook là gì?
+
+**Hook** là một câu lệnh shell mà Claude Code tự động chạy tại một thời điểm cố định trong vòng đời của session.
+
+
+> Hook được thực thi bởi **harness** (tức là cái process Claude Code đang chạy), **không phải bởi model**.
+>
+> Nó là **configuration**, không phải **instruction**.
+
+Nghe hơi lý thuyết, nhưng đây là toàn bộ lý do hooks tồn tại và so sánh với instruction được viết trong CLAUDE.md:
+
+| | Viết trong `CLAUDE.md` | Hook |
+| --- | --- | --- |
+| Ai thực thi | Model | Harness |
+| Độ tin cậy | Best effort - có thể quên, có thể skip | Deterministic - luôn luôn chạy |
+| Chặn được hành động không? | Không | Có (`PreToolUse`, exit code 2) |
+| Tốn context token? | Có | Không |
+
+Nên là, khi nào yêu cầu của bạn có dạng "**mỗi lần** X xảy ra thì Y **phải** xảy ra" - format khi save, không bao giờ đụng `.env`, log mọi lần spawn agent - thì đó là **hook**.
+
+Viết nó thành prompt instruction chỉ làm chuyện đó **có khả năng** xảy ra, chứ không **đảm bảo** nó xảy ra.
+
+Giống hệt cái vụ flaky test vậy: bạn không muốn "chắc là nó sẽ pass", bạn muốn "nó pass".
+
+---
+
+## Các event chính
+
+Claude Code có **rất nhiều** event (nhiều vãi ***). Nhưng đây là tóm tắt:
+
+| Event | When | Chặn được? |
+| --- | --- | --- |
+| `PreToolUse` | Trước khi một tool call chạy | ✅ |
+| `PostToolUse` | Sau khi tool chạy xong (thành công) | ❌ |
+| `PostToolUseFailure` | Sau khi tool chạy fail | ❌ |
+| `UserPromptSubmit` | Trước khi model xử lý prompt của bạn | ✅ |
+| `Stop` | Khi Claude trả lời xong một turn | ✅ (bắt nó làm tiếp) |
+| `SubagentStart` / `SubagentStop` | Khi subagent sinh ra / kết thúc | ✅ (Stop) |
+| `Notification` | Khi Claude Code bắn notification | ❌ |
+| `SessionStart` / `SessionEnd` | Mở / đóng session | ❌ |
+| `PreCompact` / `PostCompact` | Trước / sau khi nén context | ✅ (Pre) |
+| `FileChanged` | Khi file đang watch bị đổi trên disk | ❌ |
+
+Ngoài ra còn `PermissionRequest`, `PermissionDenied`, `TaskCreated`, `TaskCompleted`, `PostToolBatch`, `WorktreeCreate`, `Elicitation`… bla bla nhưng khi nào cần thì tra docs, học thuộc làm gì cho mệt.
+
+---
+
+## Config để ở đâu?
+
+Trong file settings, theo thứ tự phạm vi:
+
+| Vị trí | Áp dụng cho | Share được cho team? |
+| --- | --- | --- |
+| `~/.claude/settings.json` | Mọi project của bạn | ❌ |
+| `.claude/settings.json` | Đúng project đó | ✅ (commit vào repo) |
+| `.claude/settings.local.json` | Đúng project đó, riêng bạn | ❌ (nhớ gitignore) |
+| Managed policy settings | Cả tổ chức | ✅ |
+
+Kinh nghiệm: **rule của team → `.claude/settings.json` và commit lên**. Kiểu "repo này cấm sửa file migration đã chạy" thì để mỗi người tự config là chịu chết.
+
+Còn mấy thứ cá nhân kiểu "kêu 'bíp' cho tao khi xong việc" thì để ở `~/.claude/settings.json`.
+
+Cấu trúc chung:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx prettier --write \"$CLAUDE_PROJECT_DIR\"/src/**/*.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Đọc từ ngoài vào: **event** → **matcher** (lọc tool nào) → **danh sách hook** để chạy.
+
+---
+
+## Matcher - đừng viết regex khi không cần
+
+Luật khá đơn giản:
+
+- `"*"` hoặc bỏ trống → match tất cả
+- Chỉ có chữ/số/`_`/`-`/`,`/`|` → so khớp chính xác hoặc theo danh sách: `Bash`, `Edit|Write`
+- Có ký tự khác → nó hiểu là **JavaScript regex**: `^Notebook`, `mcp__memory__.*`
+
+Với MCP tool thì tên có dạng `mcp__<server>__<tool>`, nên muốn tóm hết một server là `mcp__memory__.*`.
+
+Và lưu ý: **không phải event nào cũng có matcher**. `UserPromptSubmit`, `Stop`, `PostToolBatch` thì không. Còn `SessionStart` thì matcher không phải tên tool mà là `startup|resume|clear|compact|fork`. Chỗ này mình từng config sai mất 20 phút mới hiểu tại sao hook không chạy =))))
+
+---
+
+## Hook nhận gì và trả về gì? (Skip nếu bạn không quan tâm)
+
+### Nhận: JSON qua stdin
+
+Mọi hook đều nhận một cục JSON, luôn có:
+
+```json
+{
+  "session_id": "abc123",
+  "transcript_path": "/path/to/transcript.jsonl",
+  "cwd": "/current/working/directory",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse"
+}
+```
+
+Riêng `PreToolUse` / `PostToolUse` thì có thêm phần ngon nhất:
+
+```json
+{
+  "tool_name": "Bash",
+  "tool_input": { "command": "rm -rf /tmp/data" },
+  "tool_use_id": "toolu_01ABC..."
+}
+```
+
+Nên là cứ `jq` mà chiến.
+
+### Trả về: exit code
+
+Đây là cách nhanh nhất, không cần JSON gì hết:
+
+| Exit code | Ý nghĩa |
+| --- | --- |
+| `0` | OK, cho chạy tiếp |
+| `2` | **Chặn**. stderr được đưa lại cho model đọc để nó tự sửa |
+| khác | Lỗi nhưng không chặn, chỉ hiện cảnh báo cho bạn |
+
+Exit `2` làm gì tuỳ event:
+
+- `PreToolUse` → chặn luôn tool call
+- `UserPromptSubmit` → chặn và **xoá luôn prompt** của bạn
+- `Stop` / `SubagentStop` → không cho dừng, làm tiếp
+- `PreCompact` → chặn compact
+
+Với `UserPromptSubmit`, `UserPromptExpansion` và `SessionStart`, **stdout khi exit 0 sẽ được nhét thẳng vào context** cho model đọc.
+
+### Trả về: JSON (khi cần kiểm soát hơn)
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "File này chỉ được sửa bằng tay, không cho AI đụng vào."
+  }
+}
+```
+
+`permissionDecision` có 3 giá trị: `allow` (duyệt luôn, khỏi hỏi), `deny` (cấm), `escalate` (đẩy lên hỏi user).
+
+Và mấy field dùng được ở mọi event:
+
+| Field | Tác dụng |
+| --- | --- |
+| `continue: false` | Dừng Claude lại hoàn toàn |
+| `stopReason` | Lý do hiển thị cho user khi `continue: false` |
+| `systemMessage` | Cảnh báo hiện cho user (tối đa 10.000 ký tự) |
+
+---
+
+## Mấy hook mình thực sự dùng
+
+### 1. Format sau mỗi lần sửa file
+
+Cái kinh điển. Khỏi phải nhắc nó "nhớ chạy prettier" nữa.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read f; case \"$f\" in *.ts|*.tsx) npx prettier --write \"$f\";; *.py) ruff format \"$f\";; esac; }"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 2. Cấm đụng vào file nhạy cảm
+
+`.env`, secrets, key… tọc mạch là không tốt.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -qE '(^|/)\\.env|secrets/|\\.pem$' && { echo 'File nhạy cảm, không được đụng vào.' >&2; exit 2; }; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Exit 2 → chặn, và cái message trong stderr được đưa lại cho model để nó biết đường mà đi hướng khác, chứ không phải fail im lặng rồi ngồi đoán.
+
+### 3. Không cho dừng khi test còn đỏ
+
+`Stop` hook exit 2 = "chưa xong đâu bạn ơi, làm tiếp đi".
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npm test --silent || { echo 'Test đang fail, sửa xong rồi mới được dừng.' >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Warning: hook này **rất dễ gây vòng lặp vô tận** nếu test của bạn fail vì lý do mà model không sửa được (env sập, thiếu DB, flaky…). Xài thì để timeout ngắn thôi =))))
+
+### 4. Nhét context vào mỗi prompt
+
+`UserPromptSubmit` mà exit 0 thì stdout thành context. Kiểu vầy:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"Branch hiện tại: $(git branch --show-current)\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+### 5. Log lại mọi câu lệnh bash
+
+Để audit, hoặc đơn giản là để hôm sau đọc lại xem "ủa nó chạy cái gì mà repo mình thành ra vầy":
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '\"[\\(.session_id)] \\(.tool_input.command)\"' >> ~/.claude/bash-log.txt"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 6. Noti khi nào xong
+Lâu lâu xem youtube quên nhấn Enter...
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify-send 'Claude Code' 'Đang đợi bạn kìa'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+
+---
+
+## Không phải hook nào cũng là shell command
+
+Cái này docs có nhưng ít người biết. Ngoài `type: "command"` còn có:
+
+- `type: "http"` - POST cái payload sang service của bạn
+- `type: "mcp_tool"` - gọi thẳng một MCP tool
+- `type: "prompt"` - hỏi một model nhỏ để **quyết định**
+- `type: "agent"` - thả nguyên một agent ra để thẩm định
+
+Hai cái cuối dành cho những rule **không viết được thành `if`**:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Câu lệnh này có phá huỷ dữ liệu không? $ARGUMENTS"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Nhớ: prompt/agent hook thì **chậm hơn và không còn deterministic 100%** nữa. Rule nào viết được bằng `grep` thì cứ `grep` cho lành. Đừng lấy AI đi kiểm tra AI khi một dòng regex là đủ.
+
+---
+
+## Linh tinh
+
+**1. Hook chạy với đúng quyền của current user.** Không sandbox, không xác nhận, không "bạn có chắc không". Bạn viết `rm -rf` trong hook thì nó xoá thật. Config hook = tự chịu trách nhiệm. Đọc kỹ trước khi copy hook của người lạ trên mạng về xài (kể cả bài này).
+
+**2. Hook được snapshot lúc khởi động.** Sửa `settings.json` giữa chừng thì không tự áp dụng ngay đâu - cố tình như vậy để không ai (kể cả model) chèn hook vào giữa session. Xem lại bằng `/hooks`.
+
+**3. Quote đường dẫn.** `"$CLAUDE_PROJECT_DIR"/src` - không thì gặp folder có dấu cách là toang.
+
+**4. Đừng nhét cả pipeline CI vào `PostToolUse`.** Mỗi lần sửa file mà chạy full test suite thì bạn sẽ hiểu thế nào là "chờ". Format thì nhanh, test thì để `Stop` hoặc để CI lo.
+
+**5. Debug bằng `claude --debug`.** Hook im ru không rõ vì sao thì 80% là matcher sai (xem lại mục matcher ở trên), 20% là script exit khác 0 mà bạn không biết.
+
+---
+
+## Tóm tắt
+
+> Việc này **phải** xảy ra, hay **nên** xảy ra?
+
+- **Nên** → viết vào `CLAUDE.md`, để model tự cân.
+- **Phải** → viết hook.

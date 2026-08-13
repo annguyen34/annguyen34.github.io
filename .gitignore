@@ -25,3 +25,6 @@ pnpm-debug.log*
 .ai-devkit.json
 docs/ai/*
 .github/prompts/*
+
+# local development
+draft
