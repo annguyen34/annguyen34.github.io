@@ -14,7 +14,7 @@ Khi số test tăng lên, bạn sẽ thấy mình copy-paste cùng một locator
 
 ## 1. Page Object cơ bản
 
-Ý tưởng: mỗi trang là một class, locator là thuộc tính, thao tác là method.
+Ý tưởng: mỗi trang là một class, locator là property, thao tác là method.
 
 ```ts
 // pages/LoginPage.ts
@@ -48,10 +48,10 @@ export class LoginPage {
 **Giải thích từng phần:**
 
 - `export class LoginPage` — định nghĩa class đại diện cho trang Login, export ra để file test import vào dùng.
-- `readonly page: Page` và các `readonly ...Input: Locator` — khai báo thuộc tính với kiểu rõ ràng. `readonly` nghĩa là sau khi gán trong constructor thì **không gán lại được** — đảm bảo locator không bị thay đổi nhầm giữa chừng.
-- `constructor(page: Page)` — hàm khởi tạo, nhận `page` từ bên ngoài truyền vào. Bên trong, ta gán `this.page = page` và **khởi tạo sẵn tất cả locator một lần**. Lưu ý: tạo locator ở đây *không* tốn kém — locator là "công thức tìm phần tử", nó chỉ thực sự chạy khi bạn gọi action/assertion lên nó.
+- `readonly page: Page` và các `readonly ...Input: Locator` — khai báo property với kiểu rõ ràng. `readonly` nghĩa là sau khi gán trong constructor thì **không gán lại được** — đảm bảo locator không bị thay đổi nhầm giữa chừng.
+- `constructor(page: Page)` — hàm khởi tạo, nhận `page` từ bên ngoài truyền vào. Bên trong, ta gán `this.page = page` và **khởi tạo sẵn tất cả locator một lần**. Lưu ý: tạo locator ở đây *không* tốn kém — locator là "công thức tìm element", nó chỉ thực sự chạy khi bạn gọi action/assertion lên nó.
 - `async goto()` — method điều hướng tới trang login.
-- `async login(email, password)` — gom cả luồng đăng nhập (điền email, điền password, click) vào một method có tham số. Test gọi `login(...)` mà không cần biết chi tiết bên trong.
+- `async login(email, password)` — gom cả flow đăng nhập (điền email, điền password, click) vào một method có tham số. Test gọi `login(...)` mà không cần biết chi tiết bên trong.
 
 **Dùng trong test:**
 
@@ -64,7 +64,7 @@ test('login test', async ({ page }) => {
 });
 ```
 
-Test giờ đọc rất sạch: tạo đối tượng trang → goto → login → assert. Toàn bộ chi tiết locator nằm gọn trong `LoginPage`. Khi dev đổi label "Email" thành "Email address", bạn chỉ sửa **một dòng** trong `LoginPage`, mọi test dùng nó tự động đúng.
+Test giờ đọc rất sạch: tạo page object → goto → login → assert. Toàn bộ chi tiết locator nằm gọn trong `LoginPage`. Khi dev đổi label "Email" thành "Email address", bạn chỉ sửa **một dòng** trong `LoginPage`, mọi test dùng nó tự động đúng.
 
 ## 2. Component Object Model — cách tiếp cận cho app lớn
 
@@ -126,7 +126,7 @@ export class DashboardPage {
 
 **Giải thích:**
 
-- `constructor(private page: Page)` — đây là cú pháp rút gọn của TypeScript: thêm `private` (hoặc `readonly`/`public`) trước tham số constructor sẽ **tự động** tạo và gán thuộc tính `this.page`. Khỏi phải viết `this.page = page` thủ công. Tiện và gọn.
+- `constructor(private page: Page)` — đây là cú pháp rút gọn của TypeScript: thêm `private` (hoặc `readonly`/`public`) trước tham số constructor sẽ **tự động** tạo và gán property `this.page`. Khỏi phải viết `this.page = page` thủ công. Tiện và gọn.
 - `this.header = new HeaderComponent(page)` — trang Dashboard *chứa* một Header. Ta tạo HeaderComponent và truyền cùng `page` vào. Giờ trong test, `dashboardPage.header.logout()` hoạt động.
 - `navigateToTransactions()` dùng lại `this.header.search(...)` — tái sử dụng logic của component.
 

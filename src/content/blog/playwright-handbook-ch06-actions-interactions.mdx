@@ -10,7 +10,7 @@ tags: [playwright, typescript, testing]
 
 > **Chapter 6** trong series **Playwright + TypeScript: Nguyen's Handbook**.
 
-Khi đã tìm được phần tử bằng locator, bạn cần *tương tác* với nó. Chapter này điểm qua các nhóm action: click, gõ phím, thao tác form, upload file, và mouse action. Nhớ rằng **mọi action đều có auto-wait** — Playwright tự đợi phần tử sẵn sàng trước khi thực hiện.
+Khi đã tìm được element bằng locator, bạn cần *tương tác* với nó. Chapter này điểm qua các nhóm action: click, gõ phím, thao tác form, upload file, và mouse action. Nhớ rằng **mọi action đều có auto-wait** — Playwright tự đợi element sẵn sàng trước khi thực hiện.
 
 ## 1. Click
 
@@ -52,8 +52,8 @@ await page.keyboard.press('Control+A');
 **Khác biệt quan trọng giữa `fill` và `type`:**
 
 - `fill()` đặt thẳng giá trị vào ô (clear trước, nhanh, ổn định). **Đây là lựa chọn mặc định nên dùng** cho hầu hết trường hợp.
-- `type()` mô phỏng gõ từng phím một (phát sinh sự kiện keydown/keyup cho mỗi ký tự). Chỉ cần khi bạn test logic phản ứng theo từng phím — ví dụ ô search tự gợi ý khi gõ. (Lưu ý: trong các bản Playwright mới, `type` được khuyên thay bằng `pressSequentially` nếu cần gõ từng phím.)
-- `keyboard.press('Enter')` — nhấn một phím trên bàn phím ảo, không gắn với phần tử cụ thể. `'Control+A'` là tổ hợp phím (chọn tất cả).
+- `type()` mô phỏng gõ từng phím một (phát sinh event keydown/keyup cho mỗi ký tự). Chỉ cần khi bạn test logic phản ứng theo từng phím — ví dụ ô search tự gợi ý khi gõ. (Lưu ý: trong các bản Playwright mới, `type` được khuyên thay bằng `pressSequentially` nếu cần gõ từng phím.)
+- `keyboard.press('Enter')` — nhấn một phím trên bàn phím ảo, không gắn với element cụ thể. `'Control+A'` là tổ hợp phím (chọn tất cả).
 
 ## 3. Thao tác form
 
@@ -73,7 +73,7 @@ await page.getByLabel('Country').selectOption({ label: 'United States' });
 **Giải thích:**
 
 - `.check()` / `.uncheck()` — đảm bảo checkbox ở trạng thái tích/bỏ tích. Hay ở chỗ: nếu checkbox *đã* tích sẵn, `.check()` không làm gì (idempotent) — không lo double-toggle.
-- `selectOption('USA')` — chọn option theo **value** (thuộc tính `value` của thẻ option).
+- `selectOption('USA')` — chọn option theo **value** (attribute `value` của thẻ option).
 - `selectOption({ label: 'United States' })` — chọn theo **text hiển thị**. Dùng dạng này khi bạn chỉ biết chữ người dùng thấy chứ không biết value bên dưới.
 
 ## 4. Upload file
@@ -100,8 +100,8 @@ await page.getByText('Drag').dragTo(page.getByText('Drop here'));
 
 **Giải thích:**
 
-- `.hover()` — di chuột lên phần tử mà không click. Dùng để test menu xổ ra khi hover, tooltip...
-- `.dragTo(target)` — kéo phần tử hiện tại và thả vào phần tử `target`. Tham số là **một locator khác** (đích đến).
+- `.hover()` — di chuột lên element mà không click. Dùng để test menu xổ ra khi hover, tooltip...
+- `.dragTo(target)` — kéo element hiện tại và thả vào element `target`. Tham số là **một locator khác** (đích đến).
 
 ## 6. Ví dụ điền form hoàn chỉnh
 
@@ -113,4 +113,4 @@ await page.getByLabel('I agree').check();
 await page.getByRole('button', { name: 'Register' }).click();
 ```
 
-Đọc đoạn này như một câu chuyện: điền tên → điền email → chọn quốc gia → tích đồng ý điều khoản → bấm Register. Mỗi dòng đều tự đợi phần tử sẵn sàng, nên bạn không cần chèn `wait` ở giữa. Đây chính là cảm giác "viết test như mô tả thao tác người dùng" mà Playwright hướng tới.
+Đọc đoạn này như một câu chuyện: điền tên → điền email → chọn quốc gia → tích đồng ý điều khoản → bấm Register. Mỗi dòng đều tự đợi element sẵn sàng, nên bạn không cần chèn `wait` ở giữa. Đây chính là cảm giác "viết test như mô tả thao tác người dùng" mà Playwright hướng tới.

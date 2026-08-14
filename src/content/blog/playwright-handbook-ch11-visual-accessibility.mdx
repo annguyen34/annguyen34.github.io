@@ -27,7 +27,7 @@ test('homepage visual test', async ({ page }) => {
 
 `toHaveScreenshot('homepage.png')` - lần chạy **đầu tiên** tạo baseline tên `homepage.png`. Các lần sau, Playwright chụp lại và so pixel-by-pixel với baseline. Nếu khác quá ngưỡng → test fail và sinh ảnh diff cho bạn xem chỗ khác.
 
-**Chụp một phần tử:**
+**Chụp một element:**
 
 ```ts
 test('header visual test', async ({ page }) => {
@@ -140,7 +140,7 @@ test('homepage accessibility', async ({ page }) => {
 
 - `import AxeBuilder from '@axe-core/playwright'` - import bộ quét.
 - `new AxeBuilder({ page }).analyze()` - quét trang hiện tại tìm vi phạm accessibility. Trả về object kết quả, trong đó `violations` là mảng các lỗi tìm thấy.
-- `expect(violations).toEqual([])` - khẳng định **không có** vi phạm nào (mảng rỗng). `toEqual` so sánh sâu giá trị (khác `toBe` so sánh tham chiếu) - phù hợp khi so sánh mảng/object.
+- `expect(violations).toEqual([])` - assert **không có** vi phạm nào (mảng rỗng). `toEqual` so sánh sâu giá trị (khác `toBe` so sánh tham chiếu) - phù hợp khi so sánh mảng/object.
 
 **Kiểm tra theo tiêu chuẩn WCAG cụ thể:**
 
@@ -168,7 +168,7 @@ test('banking form accessibility', async ({ page }) => {
 **Giải thích:**
 
 - `.withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])` - giới hạn quét theo các mức tiêu chuẩn WCAG (A, AA, và WCAG 2.1 AA). Nhờ đó bạn tập trung đúng mức tuân thủ mình cần.
-- Khối `if (violations.length > 0)` - nếu có lỗi, in chi tiết ra console: mô tả, mức độ ảnh hưởng (`impact`), và số phần tử dính lỗi (`violation.nodes.length`). Giúp bạn debug nhanh thay vì chỉ thấy "fail".
+- Khối `if (violations.length > 0)` - nếu có lỗi, in chi tiết ra console: mô tả, mức độ ảnh hưởng (`impact`), và số element dính lỗi (`violation.nodes.length`). Giúp bạn debug nhanh thay vì chỉ thấy "fail".
 - `.forEach(...)` - duyệt qua từng vi phạm để in.
 
 **Các tiêu chí WCAG quan trọng** (tham khảo): 1.1.1 Text Alternatives (A), 1.3.1 Info & Relationships (A), 1.4.3 Contrast tối thiểu (AA), 2.1.1 Keyboard (A), 2.4.7 Focus Visible (AA), 3.3.2 Labels or Instructions (A).

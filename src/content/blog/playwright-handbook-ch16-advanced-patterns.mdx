@@ -63,7 +63,7 @@ test('handles slow network', async ({ page }) => {
 
 - `page.route('**/api/**', ...)` - pattern `**/api/**` khớp *mọi* request có `/api/` trong đường dẫn.
 - `setTimeout(() => route.continue(), 5000)` - đợi 5 giây *rồi mới* cho request đi tiếp (`route.continue()` = để request chạy thật, khác `fulfill` là chặn lại). Nghĩa là ta không chặn API, chỉ làm nó **chậm đi**.
-- Khác biệt then chốt với phần trên: `fulfill` = trả giả không chạm server; `continue` = vẫn cho request đi thật. Ở đây ta dùng `continue` có delay để giả lập mạng lag.
+- Khác biệt then chốt với phần trên: `fulfill` = trả mock, không chạm server; `continue` = vẫn cho request đi thật. Ở đây ta dùng `continue` có delay để giả lập mạng lag.
 - Assert kiểm tra app có hiện "Loading..." trong lúc chờ - xác minh trải nghiệm chờ đợi của người dùng được xử lý tử tế.
 
 ## 2. Global Teardown - dọn dữ liệu toàn cục
@@ -132,7 +132,7 @@ export async function smartLocator(
     }
   }
 
-  throw new Error(`Không tìm thấy phần tử: ${primarySelector}`);
+  throw new Error(`Không tìm thấy element: ${primarySelector}`);
 }
 ```
 
@@ -154,7 +154,7 @@ await loginButton.click();
 **Giải thích:**
 
 - Hàm nhận selector chính + một mảng selector dự phòng. Trả về `Promise<Locator>` (vì có `await` bên trong nên hàm là async).
-- Thử selector chính trước: `await element.count() > 0` nghĩa là "có tìm thấy phần tử không". Nếu có → trả về luôn.
+- Thử selector chính trước: `await element.count() > 0` nghĩa là "có tìm thấy element không". Nếu có → trả về luôn.
 - Nếu không, vòng `for...of` thử từng selector dự phòng. Cái nào khớp đầu tiên thì dùng, kèm log báo "đã tự phục hồi".
 - Nếu cạn cả dự phòng → `throw new Error(...)` để test fail với thông báo rõ ràng.
 

@@ -35,8 +35,8 @@ test('GET users', async ({ request }) => {
 - `request.get(url)` - gửi GET request, trả về object `response`.
 - `response.status()` - mã HTTP (200, 404...). `expect(...).toBe(200)` kiểm tra thành công.
 - `response.json()` - parse body thành object/array JS (phải `await`).
-- `expect(users).toBeInstanceOf(Array)` - khẳng định kết quả là một mảng.
-- `expect(users[0]).toHaveProperty('id')` - phần tử đầu có trường `id`. `toHaveProperty` kiểm tra sự tồn tại của thuộc tính, hữu ích để xác minh "hợp đồng" (contract) của API.
+- `expect(users).toBeInstanceOf(Array)` - assert kết quả là một mảng.
+- `expect(users[0]).toHaveProperty('id')` - phần tử đầu của mảng có property `id`. `toHaveProperty` kiểm tra sự tồn tại của property, hữu ích để xác minh "hợp đồng" (contract) của API.
 
 **POST:**
 
@@ -64,7 +64,7 @@ test('POST create user', async ({ request }) => {
 - `expect(response.status()).toBe(201)` - 201 (Created) là mã chuẩn khi tạo tài nguyên thành công.
 - Kiểm tra response trả về đúng tên và đã có `id` do server cấp.
 
-**Gửi kèm header xác thực:**
+**Gửi kèm auth header:**
 
 ```ts
 test('authenticated request', async ({ request }) => {
@@ -163,12 +163,12 @@ test('purchase with API setup', async ({ request, page }) => {
 });
 ```
 
-**Giải thích luồng:**
+**Giải thích flow:**
 
 - Fixture `{ request, page }` - dùng cả hai: `request` cho phần API, `page` cho phần UI.
 - **Bước 1–2:** Thay vì click chuột tạo user rồi đăng nhập qua giao diện (chậm, dễ vỡ), ta gọi thẳng API. `const { token } = await authResponse.json()` dùng destructuring để lấy riêng trường `token`.
 - **Bước 3:** `page.context().addCookies([...])` - nhét token vào cookie của trình duyệt. Nhờ vậy khi `page.goto('/shop')`, app "tưởng" người dùng đã đăng nhập sẵn. Cần khai báo `domain` và `path` để cookie áp đúng phạm vi.
-- **Bước 4:** Đây mới là phần ta *thật sự muốn test* - luồng mua hàng trên UI.
+- **Bước 4:** Đây mới là phần ta *thật sự muốn test* - flow mua hàng trên UI.
 - **Bước 5:** Sau khi mua, ta lại dùng API để xác minh số dư đã giảm (`toBeLessThan(10000)`). Kiểm tra chéo qua API thường nhanh và đáng tin hơn là đi đào lại con số trên UI.
 
 > **Kết quả:** Test kiểu này có thể rút từ ~15 giây xuống ~6 giây. Nhân với hàng nghìn test, đó là khác biệt giữa "suite chạy hàng giờ" và "suite chạy vài phút".

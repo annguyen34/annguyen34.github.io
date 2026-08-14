@@ -39,7 +39,7 @@ const context = await browser.newContext({
 });
 ```
 
-**Đây là khái niệm hay nhất.** Một **BrowserContext** giống như một "profile trình duyệt riêng biệt": nó có cookie riêng, localStorage riêng, session riêng — hoàn toàn không thấy gì của context khác. Nhưng nó **nhẹ** vì chia sẻ chung tiến trình Browser. `viewport` đặt kích thước cửa sổ, `locale` đặt ngôn ngữ/định dạng vùng.
+**Đây là khái niệm hay nhất.** Một **BrowserContext** giống như một "profile trình duyệt riêng biệt": nó có cookie riêng, localStorage riêng, session riêng — hoàn toàn không thấy gì của context khác. Nhưng nó **nhẹ** vì chia sẻ chung process Browser. `viewport` đặt kích thước cửa sổ, `locale` đặt ngôn ngữ/định dạng vùng.
 
 ```ts
 // Page — một tab
@@ -57,7 +57,7 @@ Một điều ngầm quan trọng: fixture `page` mà bạn thấy trong `test(.
 
 ## 3. Chi tiết cơ chế Auto-Wait
 
-Như đã nói ở Chapter 1, trước **mỗi** hành động, Playwright tự đợi phần tử:
+Như đã nói ở Chapter 1, trước **mỗi** hành động, Playwright tự đợi element:
 
 - Được gắn vào DOM (attached).
 - Đang hiển thị (visible).
@@ -86,7 +86,7 @@ await page.route('**/api/users', route => {
 
 - `page.route('**/api/users', handler)` — đăng ký một handler cho mọi request khớp pattern `**/api/users`. Dấu `*` là **glob pattern**, khớp bất kỳ tiền tố nào — nên nó bắt cả `http://localhost:3000/api/users` lẫn `https://api.prod.com/api/users`.
 - `route => {...}` — handler nhận một object `route` đại diện cho request bị chặn. Bạn quyết định làm gì với nó.
-- `route.fulfill({...})` — **trả lời thẳng** request này bằng dữ liệu giả, request thật **không** bao giờ chạm tới server. Ở đây ta trả status 200 và một mảng JSON giả.
+- `route.fulfill({...})` — **trả lời thẳng** request này bằng mock data, request thật **không** bao giờ chạm tới server. Ở đây ta trả status 200 và một mảng JSON giả.
 - `JSON.stringify([...])` — chuyển object/array JavaScript thành chuỗi JSON, vì `body` cần là chuỗi.
 
 Tại sao điều này giá trị? Vì bạn có thể test giao diện trong **mọi tình huống dữ liệu** mà không phụ thuộc backend: danh sách rỗng, danh sách khổng lồ, lỗi 500, mạng chậm... Ta sẽ khai thác sâu ở Chapter 9 (mock thường) và Chapter 16 (mock để test resilience — giả lập server sập, mạng lag).

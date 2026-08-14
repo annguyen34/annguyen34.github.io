@@ -41,9 +41,9 @@ test('measure Core Web Vitals', async ({ page }) => {
 
 - `page.evaluate(() => {...})` - chạy hàm này **trong ngữ cảnh trình duyệt**, nơi có sẵn object `performance` của web. Giá trị `return` được chuyển ngược về code test (Node.js). Đây là cầu nối giữa hai thế giới.
 - `performance.getEntriesByType('paint')` - lấy các mốc "vẽ" trang. Ta tìm `first-contentful-paint` (**FCP** - thời điểm nội dung đầu tiên hiện ra).
-- `largest-contentful-paint` - **LCP**, thời điểm phần tử nội dung lớn nhất render xong (một trong các Core Web Vitals quan trọng nhất của Google).
+- `largest-contentful-paint` - **LCP**, thời điểm element nội dung lớn nhất render xong (một trong các Core Web Vitals quan trọng nhất của Google).
 - `?.` (optional chaining) - toán tử an toàn: nếu phần bên trái là `undefined` thì cả biểu thức trả `undefined` thay vì crash. Cần vì không phải lúc nào entry cũng tồn tại.
-- `domContentLoadedEventEnd - ...Start` - tính khoảng thời gian của sự kiện DOMContentLoaded.
+- `domContentLoadedEventEnd - ...Start` - tính khoảng thời gian của event DOMContentLoaded.
 - Hai `expect(...).toBeLessThan(...)` ở cuối là *ngưỡng* hiệu năng: FCP dưới 1.8s, LCP dưới 2.5s (đúng mức "good" Google khuyến nghị).
 
 ## 2. Thời gian load trang
@@ -88,7 +88,7 @@ test('analyze resource loading', async ({ page }) => {
 - `performance.getEntriesByType('resource')` - danh sách **mọi tài nguyên** trang tải (ảnh, script, CSS, font, API call...).
 - `.map(r => ({...}))` - biến đổi mỗi entry thành object gọn gồm tên, thời gian tải (`duration`), kích thước truyền (`transferSize`), và loại (`initiatorType`).
 - `.filter(r => r.duration > 1000)` - lọc ra tài nguyên tải **quá 1 giây**.
-- `expect(slowResources.length).toBe(0)` - khẳng định không có tài nguyên nào quá chậm. Nếu fail, log đã in sẵn danh sách thủ phạm.
+- `expect(slowResources.length).toBe(0)` - assert không có tài nguyên nào quá chậm. Nếu fail, log đã in sẵn danh sách thủ phạm.
 
 ## 4. Hiệu năng API
 

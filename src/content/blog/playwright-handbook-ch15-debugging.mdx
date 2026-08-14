@@ -88,7 +88,7 @@ page.on('requestfailed', request => {
 
 **Giải thích:**
 
-- `page.on('event', handler)` - đăng ký lắng nghe sự kiện trên page. Đây là cơ chế event-driven: mỗi khi sự kiện xảy ra, handler được gọi.
+- `page.on('event', handler)` - đăng ký lắng nghe event trên page. Đây là cơ chế event-driven: mỗi khi event xảy ra, handler được gọi.
 - `'request'` bắn mỗi khi có request đi ra; `'response'` mỗi khi có response về; `'requestfailed'` khi request thất bại.
 - `request.failure()?.errorText` - lý do thất bại. `?.` (optional chaining) tránh crash nếu `failure()` trả `null`.
 - Bộ ba này in ra toàn bộ "giao thông mạng" của trang - cực hữu ích khi nghi test fail do một API call lỗi/chậm.
@@ -107,14 +107,14 @@ page.on('pageerror', error => {
 - `'console'` - chuyển mọi `console.log` *bên trong trang web* ra terminal của test. Giúp thấy log của chính ứng dụng.
 - `'pageerror'` - bắt lỗi JavaScript chưa được xử lý trong trang. Nếu app văng lỗi JS, đây là chỗ bạn thấy nó.
 
-**Debug phần tử:**
+**Debug element:**
 
 ```ts
-// Đếm số phần tử khớp
+// Đếm số element khớp
 const count = await button.count();
 console.log(`Found ${count} elements`);
 
-// Tô sáng phần tử (khi chạy headed)
+// Tô sáng element (khi chạy headed)
 await button.highlight();
 
 // Lấy thông tin vị trí/kích thước
@@ -122,8 +122,8 @@ const box = await button.boundingBox();
 console.log('Element position:', box);
 ```
 
-- `.count()` - kiểm tra locator có khớp đúng số phần tử mong đợi không. Locator khớp 0 hoặc khớp quá nhiều phần tử là nguyên nhân fail rất phổ biến.
-- `.highlight()` - vẽ khung quanh phần tử (chỉ thấy ở chế độ headed). Xác nhận locator đang trỏ đúng chỗ.
+- `.count()` - kiểm tra locator có khớp đúng số element mong đợi không. Locator khớp 0 hoặc khớp quá nhiều element là nguyên nhân fail rất phổ biến.
+- `.highlight()` - vẽ khung quanh element (chỉ thấy ở chế độ headed). Xác nhận locator đang trỏ đúng chỗ.
 - `.boundingBox()` - trả về tọa độ và kích thước. Hữu ích khi debug vấn đề về layout/vị trí.
 
 ## 5. Các lỗi thường gặp & cách xử lý
@@ -155,9 +155,9 @@ await page.getByText('Success').waitFor();
 - `waitForTimeout(3000)` là **anti-pattern**. Nó vừa làm test chậm (luôn đợi đủ 3s kể cả khi trang đã sẵn sàng sau 0.2s), vừa flaky (nếu mạng chậm hơn 3s thì vẫn fail). Tránh tối đa.
 - Thay vào đó, đợi *điều kiện cụ thể*:
     - `waitForLoadState('networkidle')` - đợi tới khi không còn request mạng nào hoạt động.
-    - `waitForSelector('.loaded')` - đợi tới khi phần tử có class `.loaded` xuất hiện.
+    - `waitForSelector('.loaded')` - đợi tới khi element có class `.loaded` xuất hiện.
     - `.waitFor()` - đợi locator cụ thể xuất hiện.
-- Nguyên tắc: **đợi một sự kiện, đừng đợi một con số thời gian.** Đây cũng là tinh thần auto-wait đã nói từ Chapter 1.
+- Nguyên tắc: **đợi một event, đừng đợi một con số thời gian.** Đây cũng là tinh thần auto-wait đã nói từ Chapter 1.
 
 **Chụp màn hình để debug:**
 
@@ -165,7 +165,7 @@ await page.getByText('Success').waitFor();
 // Chụp full trang
 await page.screenshot({ path: 'debug.png', fullPage: true });
 
-// Chụp một phần tử
+// Chụp một element
 await page.locator('.error').screenshot({ path: 'error.png' });
 ```
 

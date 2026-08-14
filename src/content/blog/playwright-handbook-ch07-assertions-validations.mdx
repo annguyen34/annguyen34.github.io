@@ -1,6 +1,6 @@
 ---
 title: 'Playwright Handbook — Chapter 7: Assertions và Validations'
-summary: Cơ chế auto-retry của assertion, các matcher cấp trang/phần tử, soft assertion và tùy chỉnh timeout.
+summary: Cơ chế auto-retry của assertion, các matcher cấp trang/element, soft assertion và tùy chỉnh timeout.
 postLayout: column
 date: '2026-06-29'
 draft: false
@@ -15,7 +15,7 @@ Assertion là nơi *khẳng định* ứng dụng hành xử đúng. Điểm m�
 ## 1. Assertion tự retry - hiểu cho đúng
 
 ```ts
-// Sẽ retry liên tục trong 5 giây (mặc định) cho tới khi phần tử hiện ra
+// Sẽ retry liên tục trong 5 giây (mặc định) cho tới khi element hiện ra
 await expect(page.getByText('Success')).toBeVisible();
 ```
 
@@ -36,7 +36,7 @@ await expect(page).toHaveTitle(/Dashboard/);
 
 Truyền chuỗi để so khớp chính xác, hoặc regex (`/.../`) để khớp một phần. Regex linh hoạt hơn khi URL có query string thay đổi.
 
-## 3. Hiển thị của phần tử
+## 3. Hiển thị của element
 
 ```ts
 await expect(page.getByText('Welcome')).toBeVisible();
@@ -44,11 +44,11 @@ await expect(page.getByText('Loading')).toBeHidden();
 await expect(page.getByText('Error')).not.toBeVisible();
 ```
 
-- `toBeVisible()` - phần tử đang hiển thị.
-- `toBeHidden()` - phần tử ẩn (hoặc không có trong DOM).
-- `.not.toBeVisible()` - đảo ngược: khẳng định phần tử *không* hiển thị. Tiền tố `.not` có thể đặt trước hầu hết matcher.
+- `toBeVisible()` - element đang hiển thị.
+- `toBeHidden()` - element ẩn (hoặc không có trong DOM).
+- `.not.toBeVisible()` - đảo ngược: assert element *không* hiển thị. Tiền tố `.not` có thể đặt trước hầu hết matcher.
 
-## 4. Trạng thái phần tử
+## 4. Trạng thái element
 
 ```ts
 await expect(page.getByRole('button')).toBeEnabled();
@@ -68,7 +68,7 @@ await expect(page.getByRole('heading')).toHaveText('Welcome');
 // Chỉ cần chứa
 await expect(page.getByRole('paragraph')).toContainText('Playwright');
 
-// Khớp mảng (cho nhiều phần tử)
+// Khớp mảng (cho nhiều element)
 await expect(page.getByRole('listitem')).toHaveText(['Item 1', 'Item 2']);
 ```
 
@@ -76,7 +76,7 @@ await expect(page.getByRole('listitem')).toHaveText(['Item 1', 'Item 2']);
 
 - `toHaveText('Welcome')` - text **đúng bằng** "Welcome".
 - `toContainText('Playwright')` - text **chứa** "Playwright" ở đâu đó.
-- `toHaveText(['Item 1', 'Item 2'])` - khi locator khớp **nhiều** phần tử, truyền một mảng để assert text của *từng phần tử theo thứ tự*. Ở đây nghĩa là: có đúng 2 list item, cái đầu là "Item 1", cái sau là "Item 2".
+- `toHaveText(['Item 1', 'Item 2'])` - khi locator khớp **nhiều** element, truyền một mảng để assert text của *từng element theo thứ tự*. Ở đây nghĩa là: có đúng 2 list item, cái đầu là "Item 1", cái sau là "Item 2".
 
 ## 6. Giá trị input
 
@@ -87,7 +87,7 @@ await expect(page.getByLabel('Email')).toHaveValue(/.*@example.com/);
 
 `toHaveValue` kiểm tra giá trị hiện tại trong ô input (khác `toHaveText` dùng cho nội dung hiển thị).
 
-## 7. Thuộc tính (attributes)
+## 7. Attribute
 
 ```ts
 await expect(page.getByRole('button')).toHaveAttribute('type', 'submit');
@@ -95,9 +95,9 @@ await expect(page.getByRole('button')).toHaveClass('btn-primary');
 await expect(page.getByRole('button')).toHaveClass(/btn-/);
 ```
 
-- `toHaveAttribute('type', 'submit')` - phần tử có thuộc tính `type="submit"`.
+- `toHaveAttribute('type', 'submit')` - element có attribute `type="submit"`.
 - `toHaveClass('btn-primary')` - class **đúng bằng** "btn-primary".
-- `toHaveClass(/btn-/)` - class **khớp regex** (chứa "btn-"). Dùng regex khi phần tử có nhiều class và bạn chỉ quan tâm một phần.
+- `toHaveClass(/btn-/)` - class **khớp regex** (chứa "btn-"). Dùng regex khi element có nhiều class và bạn chỉ quan tâm một phần.
 
 ## 8. Đếm
 
@@ -106,7 +106,7 @@ await expect(page.getByRole('listitem')).toHaveCount(5);
 await expect(page.getByRole('listitem')).toHaveCount(0);
 ```
 
-`toHaveCount(5)` - assert có đúng 5 phần tử khớp. `toHaveCount(0)` - không có phần tử nào (hữu ích để khẳng định một danh sách đã trống sau khi xóa).
+`toHaveCount(5)` - assert có đúng 5 element khớp. `toHaveCount(0)` - không có element nào (hữu ích để assert một danh sách đã trống sau khi xóa).
 
 ## 9. Screenshot (visual)
 
@@ -123,7 +123,7 @@ So sánh ảnh chụp hiện tại với ảnh "chuẩn" (baseline) đã lưu. L
 await expect(page.getByText('Slow')).toBeVisible({ timeout: 30000 });
 ```
 
-Nếu phần tử cần lâu hơn mức mặc định để xuất hiện (ví dụ một báo cáo nặng), tăng `timeout` riêng cho assertion đó (30000ms = 30 giây).
+Nếu element cần lâu hơn mức mặc định để xuất hiện (ví dụ một báo cáo nặng), tăng `timeout` riêng cho assertion đó (30000ms = 30 giây).
 
 > **Mẹo - soft assertion:** Với các kiểm tra *không nghiêm trọng* mà bạn không muốn nó dừng cả test khi sai, dùng `expect.soft`:
 >

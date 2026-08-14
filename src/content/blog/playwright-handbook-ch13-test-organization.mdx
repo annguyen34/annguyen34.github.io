@@ -89,7 +89,7 @@ export const test = base.extend<CustomFixtures>({
     - `await use(value)` - "giao" giá trị đó cho test dùng. Test chạy *tại* dòng này.
     - Phần **sau** `await use(...)` (nếu có) là **teardown** - chạy *sau* khi test xong (dùng để dọn dẹp).
 - `loginPage` fixture: chỉ đơn giản tạo một `LoginPage` và giao cho test. Trong test, bạn nhận `{ loginPage }` là đã có sẵn, khỏi `new` thủ công.
-- `authenticatedPage` fixture: tự chạy nguyên luồng đăng nhập rồi giao một `page` *đã đăng nhập* cho test. Test nào cần "người dùng đã login" chỉ việc nhận `{ authenticatedPage }`.
+- `authenticatedPage` fixture: tự chạy nguyên flow đăng nhập rồi giao một `page` *đã đăng nhập* cho test. Test nào cần "người dùng đã login" chỉ việc nhận `{ authenticatedPage }`.
 
 **So với POM:** Page Object lo phần *locator/hành vi của trang*; fixture lo phần *chuẩn bị điều kiện cho test* (đăng nhập, tạo dữ liệu...). Hai cái bổ trợ nhau. Khi master fixtures, bạn sẽ thấy phần lớn boilerplate "đăng nhập lại trong từng test" biến mất.
 
@@ -160,7 +160,7 @@ for (const userData of users) {
 - Mảng `users` chứa các bộ dữ liệu test khác nhau (mỗi role một dòng).
 - Vòng `for...of` đặt **bao quanh** `test()` - mỗi vòng lặp **sinh ra một test case riêng**. Kết quả: 3 test độc lập (`admin login flow`, `user login flow`, `guest login flow`), mỗi cái có thể pass/fail riêng và hiện riêng trong báo cáo.
 - Tên test dùng template string `${userData.role} login flow` để mỗi test có tên phân biệt.
-- Đây là cách kiểm cùng một luồng với nhiều bộ dữ liệu mà không copy-paste. Thêm role mới? Chỉ thêm một dòng vào mảng.
+- Đây là cách kiểm cùng một flow với nhiều bộ dữ liệu mà không copy-paste. Thêm role mới? Chỉ thêm một dòng vào mảng.
 
 ## 6. Cấu hình môi trường
 

@@ -10,7 +10,7 @@ tags: [playwright, typescript, testing]
 
 > **Chapter 9** trong series **Playwright + TypeScript: Nguyen's Handbook**.
 
-Đến đây là lúc rời khỏi mấy form login đơn giản và đối mặt với những thứ "đời thực": tái sử dụng phiên đăng nhập, tải file, giả lập vị trí, mock API, nhiều người dùng cùng lúc, popup, và iframe. Đây là những kỹ thuật tạo nên khác biệt giữa "biết dùng" và "dùng được trong dự án thật".
+Đến đây là lúc rời khỏi mấy form login đơn giản và đối mặt với những thứ "đời thực": tái sử dụng session đăng nhập, tải file, giả lập vị trí, mock API, nhiều người dùng cùng lúc, popup, và iframe. Đây là những kỹ thuật tạo nên khác biệt giữa "biết dùng" và "dùng được trong dự án thật".
 
 ## 1. Quản lý trạng thái đăng nhập (Authentication State)
 
@@ -92,8 +92,8 @@ test('download report', async ({ page }) => {
 
 **Giải thích - đoạn `Promise.all` rất quan trọng:**
 
-- `Promise.all([waitForEvent('download'), click()])` - chạy **đồng thời** hai việc: *bắt đầu lắng nghe* sự kiện download **và** click nút. Vì sao phải đồng thời? Vì nếu bạn click *trước rồi mới* lắng nghe, sự kiện download có thể đã bắn ra trước khi bạn kịp lắng nghe → bỏ lỡ. Đây là pattern chuẩn cho mọi sự kiện "xảy ra do một action gây ra".
-- `const [download] = ...` - destructuring để lấy kết quả phần tử đầu (`waitForEvent` trả về object `download`).
+- `Promise.all([waitForEvent('download'), click()])` - chạy **đồng thời** hai việc: *bắt đầu lắng nghe* event download **và** click nút. Vì sao phải đồng thời? Vì nếu bạn click *trước rồi mới* lắng nghe, event download có thể đã bắn ra trước khi bạn kịp lắng nghe → bỏ lỡ. Đây là pattern chuẩn cho mọi event "xảy ra do một action gây ra".
+- `const [download] = ...` - destructuring để lấy kết quả đầu tiên của `Promise.all` (`waitForEvent` trả về object `download`).
 - `download.path()` - đường dẫn tạm nơi file được tải về.
 - `download.saveAs(...)` - lưu file ra vị trí mình muốn. `download.suggestedFilename()` là tên file gốc server đề xuất.
 - `expect(...).toContain('report.pdf')` - kiểm tra tên file chứa "report.pdf".
@@ -113,7 +113,7 @@ await page.getByLabel('Upload photos').setInputFiles([
 await page.getByLabel('Upload').setInputFiles([]);
 ```
 
-`setInputFiles([])` với mảng rỗng = bỏ chọn hết file. Hữu ích khi test luồng "chọn nhầm rồi xóa".
+`setInputFiles([])` với mảng rỗng = bỏ chọn hết file. Hữu ích khi test flow "chọn nhầm rồi xóa".
 
 ## 4. Test theo vị trí (Geolocation)
 
@@ -159,7 +159,7 @@ test('mock API response', async ({ page }) => {
 });
 ```
 
-Như đã giới thiệu ở Chapter 4: `page.route(pattern, handler)` chặn request khớp pattern, `route.fulfill(...)` trả dữ liệu giả mà không chạm server thật. Ở đây ta ép API `/api/users` luôn trả về Alice và Bob, rồi kiểm tra UI hiển thị đúng. Cách này giúp test ổn định và độc lập backend.
+Như đã giới thiệu ở Chapter 4: `page.route(pattern, handler)` chặn request khớp pattern, `route.fulfill(...)` trả mock data mà không chạm server thật. Ở đây ta ép API `/api/users` luôn trả về Alice và Bob, rồi kiểm tra UI hiển thị đúng. Cách này giúp test ổn định và độc lập backend.
 
 ## 6. Nhiều browser context (multi-user)
 
@@ -190,7 +190,7 @@ test('multi-user scenario', async ({ browser }) => {
 **Giải thích:**
 
 - Fixture ở đây là `{ browser }` (không phải `page`) - vì ta cần tự tạo nhiều context.
-- Mỗi `browser.newContext({ storageState })` tạo một phiên cô lập với danh tính riêng (admin / user thường). Như đã nói ở Chapter 4, các context không thấy session của nhau - đúng cái ta cần để giả lập hai người dùng.
+- Mỗi `browser.newContext({ storageState })` tạo một session cô lập với danh tính riêng (admin / user thường). Như đã nói ở Chapter 4, các context không thấy session của nhau - đúng cái ta cần để giả lập hai người dùng.
 - Admin thao tác trên `adminPage`, user kiểm tra trên `userPage` - song song trong cùng một trình duyệt.
 - `adminContext.close()` / `userContext.close()` - **tự dọn dẹp**. Khi tự tạo context, bạn có trách nhiệm đóng nó (khác với fixture `page` được Playwright tự dọn).
 
@@ -216,7 +216,7 @@ test('popup window', async ({ context, page }) => {
 
 **Giải thích:**
 
-- Lại là pattern `Promise.all` như phần download: vừa lắng nghe sự kiện `'page'` (một tab/cửa sổ mới mở ra) vừa click nút mở popup.
+- Lại là pattern `Promise.all` như phần download: vừa lắng nghe event `'page'` (một tab/cửa sổ mới mở ra) vừa click nút mở popup.
 - `context.waitForEvent('page')` trả về object `popup` - chính là Page của tab mới.
 - `popup.waitForLoadState()` - chờ popup load xong.
 - Từ đây bạn thao tác trên `popup` y như một page bình thường. Sau khi Accept, popup đóng và ta quay lại kiểm tra trang chính (`page`).
@@ -241,7 +241,7 @@ test('iframe interaction', async ({ page }) => {
 **Giải thích:**
 
 - iframe là "trang trong trang" - locator thường của `page` **không** xuyên vào được bên trong iframe. Bạn phải dùng `page.frameLocator(...)`.
-- `page.frameLocator('iframe[name="payment"]')` - lấy "tay cầm" tới iframe có thuộc tính `name="payment"`.
-- Sau đó, mọi locator gọi trên `paymentFrame` sẽ tìm **bên trong** iframe đó. Phần tử ngoài iframe (như thông báo "Payment Successful") thì gọi trên `page` như bình thường.
+- `page.frameLocator('iframe[name="payment"]')` - lấy "tay cầm" tới iframe có attribute `name="payment"`.
+- Sau đó, mọi locator gọi trên `paymentFrame` sẽ tìm **bên trong** iframe đó. Element ngoài iframe (như thông báo "Payment Successful") thì gọi trên `page` như bình thường.
 
 > **Thực tế:** Cổng thanh toán (Stripe, các payment gateway) rất hay nhúng form trong iframe để cách ly bảo mật. Nắm `frameLocator` là bắt buộc nếu bạn test e-commerce hay fintech.

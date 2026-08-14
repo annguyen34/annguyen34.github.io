@@ -53,11 +53,11 @@ test('banking login with MFA', async ({ page }) => {
 
 - AI sinh được phần **khung và boilerplate** rất tốt - đúng locator user-facing (`getByLabel`, `getByRole`), đúng cấu trúc assertion.
 - Nhưng để ý dòng `await page.getByLabel('OTP').fill('123456')` - OTP `'123456'` là **giả định**. Trong thực tế OTP thay đổi mỗi lần, bạn phải lấy từ email/SMS hoặc backend test. Đây chính là **edge case và business logic** mà AI không tự biết - bạn phải tự bổ sung.
-- **Quy tắc dùng AI sinh test:** để AI lo phần khung/boilerplate, còn *bạn* review và xử lý phần dữ liệu động, edge case, và logic nghiệp vụ. Đừng commit thẳng code AI sinh mà không đọc - nó hay "bịa" locator cho phần tử không tồn tại, hoặc giả định luồng sai.
+- **Quy tắc dùng AI sinh test:** để AI lo phần khung/boilerplate, còn *bạn* review và xử lý phần dữ liệu động, edge case, và logic nghiệp vụ. Đừng commit thẳng code AI sinh mà không đọc - nó hay "bịa" locator cho element không tồn tại, hoặc giả định luồng sai.
 
 ## 2. Self-Healing Selector dùng AI
 
-Ý tưởng: khi selector hỏng, hỏi AI phân tích HTML của trang để tìm phần tử đúng.
+Ý tưởng: khi selector hỏng, hỏi AI phân tích HTML của trang để tìm element đúng.
 
 ```ts
 // utils/aiSelfHealing.ts
@@ -165,14 +165,14 @@ test('form handles edge cases', async ({ page }) => {
 - Vòng `for...of` thử *từng* giá trị vào form.
 - `expect(hasError || hasSuccess).toBeTruthy()` - đây là kiểu assert thông minh cho fuzzing: ta không biết trước giá trị nào hợp lệ, nhưng *yêu cầu* app phải phản ứng dứt khoát - **hoặc** báo "Invalid" **hoặc** "Success". Cái app **không** được phép làm là: treo, văng lỗi 500, hay nuốt im lặng. `toBeTruthy()` đúng khi giá trị là "thật" (true).
 
-> **Vì sao đây là cách dùng AI tốt:** Sinh dữ liệu edge-case là việc tẻ nhạt, dễ thiếu sót nếu làm tay. AI sinh trong vài giây với độ phủ rộng. Và quan trọng: dữ liệu sinh ra là *dữ liệu tĩnh* - bạn có thể lưu lại, review, và đưa vào test một cách xác định. Khác hẳn với self-healing (gọi AI lúc chạy). **Lưu ý:** vẫn nên review danh sách AI sinh ra và cân nhắc lưu cố định để test có thể lặp lại.
+> **Vì sao đây là cách dùng AI tốt:** Sinh dữ liệu edge-case là việc tẻ nhạt, dễ thiếu sót nếu làm tay. AI sinh trong vài giây với coverage rộng. Và quan trọng: dữ liệu sinh ra là *dữ liệu tĩnh* - bạn có thể lưu lại, review, và đưa vào test một cách xác định. Khác hẳn với self-healing (gọi AI lúc chạy). **Lưu ý:** vẫn nên review danh sách AI sinh ra và cân nhắc lưu cố định để test có thể lặp lại.
 
 ## 4. AI hỗ trợ bảo trì test
 
 Một số hướng AI có thể giúp (phần lớn vẫn đang phát triển):
 
-- **Phát hiện test flaky:** phân tích pattern qua nhiều lần chạy để chỉ ra test nào không ổn định (ví dụ "test login pass 95/100 lần") và gợi ý nguyên nhân.
-- **Sinh test từ quan sát:** một số tool theo dõi phiên test thủ công rồi sinh test tự động tương ứng.
+- **Phát hiện test flaky:** phân tích pattern qua nhiều lần chạy để chỉ ra test nào flaky (ví dụ "test login pass 95/100 lần") và gợi ý nguyên nhân.
+- **Sinh test từ quan sát:** một số tool theo dõi session test thủ công rồi sinh test tự động tương ứng.
 - **Gợi ý test case mới** dựa trên thay đổi code.
 
 Hãy xem đây là *trợ lý gợi ý*, không phải thứ thay bạn quyết định. Quyết định cuối - test gì, edge case nào quan trọng - vẫn là của kỹ sư.
@@ -181,7 +181,7 @@ Hãy xem đây là *trợ lý gợi ý*, không phải thứ thay bạn quyết 
 
 Trong thực tế (2025–2026), cách dùng AI hiệu quả cho Playwright thường **không** phải là nhét lời gọi LLM vào trong test, mà là dùng một **coding agent như Claude Code** ở tầng phát triển:
 
-- **Sinh & refactor test:** mô tả luồng cần test bằng tiếng Việt/Anh, agent viết test Playwright với locator user-facing chuẩn, bạn review rồi commit. Code sinh ra là **tĩnh, xác định, lặp lại được** - không gọi AI lúc chạy.
+- **Sinh & refactor test:** mô tả flow cần test bằng tiếng Việt/Anh, agent viết test Playwright với locator user-facing chuẩn, bạn review rồi commit. Code sinh ra là **tĩnh, xác định, lặp lại được** - không gọi AI lúc chạy.
 - **Sửa selector hỏng:** khi test fail, đưa lỗi + HTML cho agent, nó gợi ý locator mới *để bạn vá vào code*, thay vì tự lành lúc runtime.
 - **Đọc trace để chẩn đoán:** đưa thông tin từ Trace Viewer (Chapter 15) cho agent để phân tích nguyên nhân flaky.
 - **SKILL.md / hướng dẫn dự án:** đặt một file mô tả convention của dự án (ưu tiên `getByRole`, cấu trúc POM/fixtures...) để agent sinh test *đúng phong cách team* ngay từ đầu, thay vì code kiểu `page.click('#submit')` hời hợt.
@@ -194,7 +194,7 @@ AI **không** thay thế kỹ sư QA. Nó nâng vai trò bạn từ "người vi
 
 - **Prompt engineering** - biết mô tả yêu cầu test rõ ràng cho AI.
 - **Tích hợp công cụ AI** - biết đưa AI vào đúng chỗ trong workflow (vòng phát triển, không phải runtime).
-- **Chiến lược test** - thiết kế cách tiếp cận tổng thể: test gì, ở tầng nào, độ phủ ra sao.
+- **Chiến lược test** - thiết kế cách tiếp cận tổng thể: test gì, ở tầng nào, coverage ra sao.
 - **Hiểu nghiệp vụ (domain knowledge)** - thứ AI không có; biết edge case nào *thật sự* quan trọng với sản phẩm.
 - **Nắm vững Playwright** - hiểu sâu framework để review và sửa code AI sinh.
 

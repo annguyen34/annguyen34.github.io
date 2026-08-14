@@ -119,7 +119,7 @@ export default defineConfig({
 
 **Giải thích:**
 
-- `workers` - số tiến trình chạy test song song *trên một máy*. `process.env.CI ? 2 : undefined`: trên CI giới hạn 2 worker (vì máy ảo CI thường ít CPU, nhiều worker quá lại chậm/flaky); ở local để `undefined` nghĩa là Playwright tự dùng tối đa theo số CPU.
+- `workers` - số process chạy test song song *trên một máy*. `process.env.CI ? 2 : undefined`: trên CI giới hạn 2 worker (vì máy ảo CI thường ít CPU, nhiều worker quá lại chậm/flaky); ở local để `undefined` nghĩa là Playwright tự dùng tối đa theo số CPU.
 - **Phân biệt với sharding:** `workers` chia song song *trong cùng một máy*; `sharding` chia song song *qua nhiều máy*. Hai cái kết hợp được: 10 máy (shard), mỗi máy 2 worker = 20 luồng song song.
 - `fullyParallel: true` - như đã nói ở Chapter 2, song song tới cả từng test trong một file.
 - `retries` - retry trên CI để giảm nhiễu, local 0 để thấy fail ngay.

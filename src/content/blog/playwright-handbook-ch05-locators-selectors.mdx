@@ -1,6 +1,6 @@
 ---
 title: 'Playwright Handbook — Chapter 5: Locators và Selectors'
-summary: Chiến lược chọn locator bền (role, label, text, test ID), chaining, filtering và làm việc với nhiều phần tử.
+summary: Chiến lược chọn locator bền (role, label, text, test ID), chaining, filtering và làm việc với nhiều element.
 postLayout: column
 date: '2026-06-29'
 draft: false
@@ -22,7 +22,7 @@ Hãy chọn theo thứ tự này:
 page.getByRole('button', { name: 'Submit' });
 ```
 
-Tìm theo vai trò accessibility + tên. Tốt vì nó phản ánh ngữ nghĩa, không phụ thuộc style.
+Tìm theo **role** accessibility + tên. Tốt vì nó phản ánh ngữ nghĩa, không phụ thuộc style.
 
 **2. Theo label (tuyệt cho form):**
 
@@ -42,7 +42,7 @@ page.getByText('Welcome');
 page.getByTestId('submit-btn');
 ```
 
-Một điều quan trọng: `getByTestId` mặc định tìm thuộc tính `data-testid`. Nếu codebase của bạn dùng tên khác (ví dụ `data-test`), bạn cấu hình trong `playwright.config.ts` qua `use: { testIdAttribute: 'data-test' }`.
+Một điều quan trọng: `getByTestId` mặc định tìm attribute `data-testid`. Nếu codebase của bạn dùng tên khác (ví dụ `data-test`), bạn cấu hình trong `playwright.config.ts` qua `use: { testIdAttribute: 'data-test' }`.
 
 ## 2. Chaining — nối locator
 
@@ -66,11 +66,11 @@ await page
   .click();
 ```
 
-**Giải thích:** `getByRole('listitem')` khớp **tất cả** các mục danh sách trên trang. `.filter({ hasText: 'Product 1' })` giữ lại chỉ những mục **có chứa** chữ "Product 1". Đây là pattern kinh điển: lấy một tập phần tử giống nhau (các dòng trong list/table), rồi lọc ra đúng dòng mình cần dựa trên nội dung.
+**Giải thích:** `getByRole('listitem')` khớp **tất cả** các mục danh sách trên trang. `.filter({ hasText: 'Product 1' })` giữ lại chỉ những mục **có chứa** chữ "Product 1". Đây là pattern kinh điển: lấy một tập element giống nhau (các dòng trong list/table), rồi lọc ra đúng dòng mình cần dựa trên nội dung.
 
 Ngoài `hasText`, `filter` còn nhận `has` (chứa một locator con khác) - ví dụ lọc các dòng *có chứa* một nút cụ thể.
 
-## 4. Làm việc với nhiều phần tử
+## 4. Làm việc với nhiều element
 
 ```ts
 const count = await page.getByRole('listitem').count();
@@ -80,10 +80,10 @@ await page.getByRole('button').nth(2).click();
 
 **Giải thích:**
 
-- `.count()` — đếm số phần tử khớp. Lưu ý phải `await` vì nó là thao tác bất đồng bộ; kết quả trả về là một số.
-- `.first()` — lấy phần tử **đầu tiên** trong tập khớp.
-- `.nth(2)` — lấy phần tử thứ ba (index bắt đầu từ 0, nên `nth(2)` là phần tử thứ 3). Tương tự có `.last()`.
+- `.count()` — đếm số element khớp. Lưu ý phải `await` vì nó là thao tác bất đồng bộ; kết quả trả về là một số.
+- `.first()` — lấy element **đầu tiên** trong tập khớp.
+- `.nth(2)` — lấy element thứ ba (index bắt đầu từ 0, nên `nth(2)` là element thứ 3). Tương tự có `.last()`.
 
-> **Cảnh báo:** Dùng `.nth()` hay `.first()` khiến test phụ thuộc vào **thứ tự** phần tử trên trang — nếu thứ tự đổi, test sai. Khi có thể, hãy ưu tiên `.filter({ hasText })` để chọn theo *nội dung* (ổn định hơn) thay vì theo *vị trí*.
+> **Cảnh báo:** Dùng `.nth()` hay `.first()` khiến test phụ thuộc vào **thứ tự** element trên trang — nếu thứ tự đổi, test sai. Khi có thể, hãy ưu tiên `.filter({ hasText })` để chọn theo *nội dung* (ổn định hơn) thay vì theo *vị trí*.
 
 > **Quy tắc chung:** Ưu tiên role-based locator — chúng phản ánh đúng cách người dùng tương tác với app và đồng thời thúc đẩy accessibility. Selector càng "user-facing" thì test càng bền trước các thay đổi về style/cấu trúc HTML.

@@ -162,7 +162,7 @@ Trên môi trường CI, cấm dùng `test.only` — nếu ai vô tình để l�
   retries: process.env.CI ? 2 : 0,
 ```
 
-Trên CI: thử lại 2 lần nếu test fail. Ở local: không thử lại.
+Trên CI: retry 2 lần nếu test fail. Ở local: không retry.
 
 ---
 
