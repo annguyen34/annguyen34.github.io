@@ -8,11 +8,9 @@ cover: '@/assets/pytest-fixture/pepe.png'
 tags: [pytest, testing]
 ---
 
-import Figure from "@/components/Figure.astro"
 import DetailsSummary from "@/components/DetailsSummary.astro"
-import dataAccessArch from "@/assets/pytest-fixture/pepe.png"
 
-# Preface
+## Preface
 
 - Tài liệu được tham khảo từ source code pytest. Các bạn có thể đọc tại đây:  https://github.com/pytest-dev/pytest
 - Pytest Document: https://docs.pytest.org/
@@ -32,7 +30,7 @@ Vậy làm thế nào mà pytest:
 - Quản lý lifecycle theo scope?
 - Fixture execution & tear down?
 
-# 1. Tại sao fixture lại đặc biệt ?
+## 1. Tại sao fixture lại đặc biệt?
 
 Btw, fixture trông có vẻ đơn giản, just a decorator `@pytest.fixture`. Nhưng đằng sau keyword là 
 
@@ -43,7 +41,7 @@ Btw, fixture trông có vẻ đơn giản, just a decorator `@pytest.fixture`. N
 
 ⇒ Fixture không chỉ là setup data cho test, **nó là một dependency graph resolver kiêm lifecycle manager**
 
-# 2. Collection Phase
+## 2. Collection Phase
 
 **Collection phase** là giai đoạn pytest:
 
@@ -55,19 +53,30 @@ Btw, fixture trông có vẻ đơn giản, just a decorator `@pytest.fixture`. N
 
 Trong phase này, pytest:
 
-- Discover các file test (`test_*.py`, `_test.py`)
+- Discover các file test (`test_*.py`, `*_test.py`)
 - Import module (execute top-level Python code)
 - Thu thập **test items**
 - Thu thập **fixture definitions**
 - Xây dựng cấu trúc dữ liệu phục vụ resolve & execution sau này
 
-Chỉ có metadata được collect, fixture sẽ không excecute.
+Chỉ có metadata được collect, fixture sẽ không execute.
 
-# 3. FixtureRef ?
+## 3. FixtureDef?
 
-Decorator `@pytest.fixture` **chỉ gắn marker lên function**, không wrap hay gọi function đó.
+Decorator `@pytest.fixture` **không gọi function của bạn**. Từ pytest 8.4, nó thay luôn function đó bằng một object `FixtureFunctionDefinition` mang theo marker:
 
-Pytest sau đó đọc marker này để tạo ra một **`FixtureDef`** – blueprint mô tả fixture:
+```python
+class FixtureFunctionDefinition:
+    def __init__(self, *, function, fixture_function_marker, instance=None):
+        self.name = fixture_function_marker.name or function.__name__
+        self._fixture_function_marker = fixture_function_marker
+        self._fixture_function = function
+        functools.update_wrapper(self, function)
+```
+
+Nói cách khác: sau khi decorate, cái tên `db` trong module của bạn **không còn trỏ tới function nữa**, mà trỏ tới một wrapper object. Đây chính là thứ pytest đi tìm khi quét module — bạn sẽ thấy nó ở `parsefactories()` phần sau: `if type(obj_ub) is FixtureFunctionDefinition`.
+
+Từ object đó, pytest tạo ra một **`FixtureDef`** – blueprint mô tả fixture:
 
 <DetailsSummary title="Code">
     
@@ -118,126 +127,126 @@ class FixtureDef(Generic[FixtureValue]):
         # The name by which the fixture may be requested.
         self.argname: Final = argname
         if scope is None:
-                scope = Scope.Function
-            elif callable(scope):
-                scope = _eval_scope_callable(scope, argname, config)
-            if isinstance(scope, str):
-                scope = Scope.from_user(
-                    scope, descr=f"Fixture '{func.__name__}'", where=baseid
-                )
-            self._scope: Final = scope
-            # If the fixture is directly parametrized, the parameter values.
-            self.params: Final = params
-            # If the fixture is directly parametrized, a tuple of explicit IDs to
-            # assign to the parameter values, or a callable to generate an ID given
-            # a parameter value.
-            self.ids: Final = ids
-            # The names requested by the fixtures.
-            self.argnames: Final = getfuncargnames(func, name=argname)
-            # If the fixture was executed, the current value of the fixture.
-            # Can change if the fixture is executed with different parameters.
-            self.cached_result: _FixtureCachedResult[FixtureValue] | None = None
-            self._finalizers: Final[list[Callable[[], object]]] = []
-    
-            # only used to emit a deprecationwarning, can be removed in pytest9
-            self._autouse = _autouse
-    
-        @property
-        def scope(self) -> _ScopeName:
-            """Scope string, one of "function", "class", "module", "package", "session"."""
-            return self._scope.value
-    
-        def addfinalizer(self, finalizer: Callable[[], object]) -> None:
-            self._finalizers.append(finalizer)
-    
-        def finish(self, request: SubRequest) -> None:
-            exceptions: list[BaseException] = []
-            while self._finalizers:
-                fin = self._finalizers.pop()
-                try:
-                    fin()
-                except BaseException as e:
-                    exceptions.append(e)
-            node = request.node
-            node.ihook.pytest_fixture_post_finalizer(fixturedef=self, request=request)
-            # Even if finalization fails, we invalidate the cached fixture
-            # value and remove all finalizers because they may be bound methods
-            # which will keep instances alive.
-            self.cached_result = None
-            self._finalizers.clear()
-            if len(exceptions) == 1:
-                raise exceptions[0]
-            elif len(exceptions) > 1:
-                msg = f'errors while tearing down fixture "{self.argname}" of {node}'
-                raise BaseExceptionGroup(msg, exceptions[::-1])
-    
-        def execute(self, request: SubRequest) -> FixtureValue:
-            """Return the value of this fixture, executing it if not cached."""
-            # Ensure that the dependent fixtures requested by this fixture are loaded.
-            # This needs to be done before checking if we have a cached value, since
-            # if a dependent fixture has their cache invalidated, e.g. due to
-            # parametrization, they finalize themselves and fixtures depending on it
-            # (which will likely include this fixture) setting `self.cached_result = None`.
-            # See #4871
-            requested_fixtures_that_should_finalize_us = []
-            for argname in self.argnames:
-                fixturedef = request._get_active_fixturedef(argname)
-                # Saves requested fixtures in a list so we later can add our finalizer
-                # to them, ensuring that if a requested fixture gets torn down we get torn
-                # down first. This is generally handled by SetupState, but still currently
-                # needed when this fixture is not parametrized but depends on a parametrized
-                # fixture.
-                if not isinstance(fixturedef, PseudoFixtureDef):
-                    requested_fixtures_that_should_finalize_us.append(fixturedef)
-    
-            # Check for (and return) cached value/exception.
-            if self.cached_result is not None:
-                request_cache_key = self.cache_key(request)
-                cache_key = self.cached_result[1]
-                try:
-                    # Attempt to make a normal == check: this might fail for objects
-                    # which do not implement the standard comparison (like numpy arrays -- #6497).
-                    cache_hit = bool(request_cache_key == cache_key)
-                except (ValueError, RuntimeError):
-                    # If the comparison raises, use 'is' as fallback.
-                    cache_hit = request_cache_key is cache_key
-    
-                if cache_hit:
-                    if self.cached_result[2] is not None:
-                        exc, exc_tb = self.cached_result[2]
-                        raise exc.with_traceback(exc_tb)
-                    else:
-                        result = self.cached_result[0]
-                        return result
-                # We have a previous but differently parametrized fixture instance
-                # so we need to tear it down before creating a new one.
-                self.finish(request)
-                assert self.cached_result is None
-    
-            # Add finalizer to requested fixtures we saved previously.
-            # We make sure to do this after checking for cached value to avoid
-            # adding our finalizer multiple times. (#12135)
-            finalizer = functools.partial(self.finish, request=request)
-            for parent_fixture in requested_fixtures_that_should_finalize_us:
-                parent_fixture.addfinalizer(finalizer)
-    
-            ihook = request.node.ihook
+            scope = Scope.Function
+        elif callable(scope):
+            scope = _eval_scope_callable(scope, argname, config)
+        if isinstance(scope, str):
+            scope = Scope.from_user(
+                scope, descr=f"Fixture '{func.__name__}'", where=baseid
+            )
+        self._scope: Final = scope
+        # If the fixture is directly parametrized, the parameter values.
+        self.params: Final = params
+        # If the fixture is directly parametrized, a tuple of explicit IDs to
+        # assign to the parameter values, or a callable to generate an ID given
+        # a parameter value.
+        self.ids: Final = ids
+        # The names requested by the fixtures.
+        self.argnames: Final = getfuncargnames(func, name=argname)
+        # If the fixture was executed, the current value of the fixture.
+        # Can change if the fixture is executed with different parameters.
+        self.cached_result: _FixtureCachedResult[FixtureValue] | None = None
+        self._finalizers: Final[list[Callable[[], object]]] = []
+
+        # only used to emit a deprecationwarning, can be removed in pytest9
+        self._autouse = _autouse
+
+    @property
+    def scope(self) -> _ScopeName:
+        """Scope string, one of "function", "class", "module", "package", "session"."""
+        return self._scope.value
+
+    def addfinalizer(self, finalizer: Callable[[], object]) -> None:
+        self._finalizers.append(finalizer)
+
+    def finish(self, request: SubRequest) -> None:
+        exceptions: list[BaseException] = []
+        while self._finalizers:
+            fin = self._finalizers.pop()
             try:
-                # Setup the fixture, run the code in it, and cache the value
-                # in self.cached_result
-                result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
-            finally:
-                # schedule our finalizer, even if the setup failed
-                request.node.addfinalizer(finalizer)
-    
-            return result
-    
-        def cache_key(self, request: SubRequest) -> object:
-            return getattr(request, "param", None)
-    
-        def __repr__(self) -> str:
-            return f"<FixtureDef argname={self.argname!r} scope={self.scope!r} baseid={self.baseid!r}>"
-    ```
+                fin()
+            except BaseException as e:
+                exceptions.append(e)
+        node = request.node
+        node.ihook.pytest_fixture_post_finalizer(fixturedef=self, request=request)
+        # Even if finalization fails, we invalidate the cached fixture
+        # value and remove all finalizers because they may be bound methods
+        # which will keep instances alive.
+        self.cached_result = None
+        self._finalizers.clear()
+        if len(exceptions) == 1:
+            raise exceptions[0]
+        elif len(exceptions) > 1:
+            msg = f'errors while tearing down fixture "{self.argname}" of {node}'
+            raise BaseExceptionGroup(msg, exceptions[::-1])
+
+    def execute(self, request: SubRequest) -> FixtureValue:
+        """Return the value of this fixture, executing it if not cached."""
+        # Ensure that the dependent fixtures requested by this fixture are loaded.
+        # This needs to be done before checking if we have a cached value, since
+        # if a dependent fixture has their cache invalidated, e.g. due to
+        # parametrization, they finalize themselves and fixtures depending on it
+        # (which will likely include this fixture) setting `self.cached_result = None`.
+        # See #4871
+        requested_fixtures_that_should_finalize_us = []
+        for argname in self.argnames:
+            fixturedef = request._get_active_fixturedef(argname)
+            # Saves requested fixtures in a list so we later can add our finalizer
+            # to them, ensuring that if a requested fixture gets torn down we get torn
+            # down first. This is generally handled by SetupState, but still currently
+            # needed when this fixture is not parametrized but depends on a parametrized
+            # fixture.
+            if not isinstance(fixturedef, PseudoFixtureDef):
+                requested_fixtures_that_should_finalize_us.append(fixturedef)
+
+        # Check for (and return) cached value/exception.
+        if self.cached_result is not None:
+            request_cache_key = self.cache_key(request)
+            cache_key = self.cached_result[1]
+            try:
+                # Attempt to make a normal == check: this might fail for objects
+                # which do not implement the standard comparison (like numpy arrays -- #6497).
+                cache_hit = bool(request_cache_key == cache_key)
+            except (ValueError, RuntimeError):
+                # If the comparison raises, use 'is' as fallback.
+                cache_hit = request_cache_key is cache_key
+
+            if cache_hit:
+                if self.cached_result[2] is not None:
+                    exc, exc_tb = self.cached_result[2]
+                    raise exc.with_traceback(exc_tb)
+                else:
+                    result = self.cached_result[0]
+                    return result
+            # We have a previous but differently parametrized fixture instance
+            # so we need to tear it down before creating a new one.
+            self.finish(request)
+            assert self.cached_result is None
+
+        # Add finalizer to requested fixtures we saved previously.
+        # We make sure to do this after checking for cached value to avoid
+        # adding our finalizer multiple times. (#12135)
+        finalizer = functools.partial(self.finish, request=request)
+        for parent_fixture in requested_fixtures_that_should_finalize_us:
+            parent_fixture.addfinalizer(finalizer)
+
+        ihook = request.node.ihook
+        try:
+            # Setup the fixture, run the code in it, and cache the value
+            # in self.cached_result
+            result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+        finally:
+            # schedule our finalizer, even if the setup failed
+            request.node.addfinalizer(finalizer)
+
+        return result
+
+    def cache_key(self, request: SubRequest) -> object:
+        return getattr(request, "param", None)
+
+    def __repr__(self) -> str:
+        return f"<FixtureDef argname={self.argname!r} scope={self.scope!r} baseid={self.baseid!r}>"
+```
 
 </DetailsSummary>
 
@@ -248,7 +257,7 @@ class FixtureDef(Generic[FixtureValue]):
 - Cache kết quả
 - Quản lý teardown
 
-# 4. Fixture Manager ?
+## 4. Fixture Manager?
 
 Vậy nếu có nhiều fixture cùng tên thì sao nhỉ ? Ye, đó là lý do chúng ta có Fixture Manager
 
@@ -263,386 +272,386 @@ Vậy nếu có nhiều fixture cùng tên thì sao nhỉ ? Ye, đó là lý do 
     
 ```python
 class FixtureManager:
-        """pytest fixture definitions and information is stored and managed
-        from this class.
-    
-        During collection fm.parsefactories() is called multiple times to parse
-        fixture function definitions into FixtureDef objects and internal
-        data structures.
-    
-        During collection of test functions, metafunc-mechanics instantiate
-        a FuncFixtureInfo object which is cached per node/func-name.
-        This FuncFixtureInfo object is later retrieved by Function nodes
-        which themselves offer a fixturenames attribute.
-    
-        The FuncFixtureInfo object holds information about fixtures and FixtureDefs
-        relevant for a particular function. An initial list of fixtures is
-        assembled like this:
-    
-        - ini-defined usefixtures
-        - autouse-marked fixtures along the collection chain up from the function
-        - usefixtures markers at module/class/function level
-        - test function funcargs
-    
-        Subsequently the funcfixtureinfo.fixturenames attribute is computed
-        as the closure of the fixtures needed to setup the initial fixtures,
-        i.e. fixtures needed by fixture functions themselves are appended
-        to the fixturenames list.
-    
-        Upon the test-setup phases all fixturenames are instantiated, retrieved
-        by a lookup of their FuncFixtureInfo.
+    """pytest fixture definitions and information is stored and managed
+    from this class.
+
+    During collection fm.parsefactories() is called multiple times to parse
+    fixture function definitions into FixtureDef objects and internal
+    data structures.
+
+    During collection of test functions, metafunc-mechanics instantiate
+    a FuncFixtureInfo object which is cached per node/func-name.
+    This FuncFixtureInfo object is later retrieved by Function nodes
+    which themselves offer a fixturenames attribute.
+
+    The FuncFixtureInfo object holds information about fixtures and FixtureDefs
+    relevant for a particular function. An initial list of fixtures is
+    assembled like this:
+
+    - ini-defined usefixtures
+    - autouse-marked fixtures along the collection chain up from the function
+    - usefixtures markers at module/class/function level
+    - test function funcargs
+
+    Subsequently the funcfixtureinfo.fixturenames attribute is computed
+    as the closure of the fixtures needed to setup the initial fixtures,
+    i.e. fixtures needed by fixture functions themselves are appended
+    to the fixturenames list.
+
+    Upon the test-setup phases all fixturenames are instantiated, retrieved
+    by a lookup of their FuncFixtureInfo.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.config: Config = session.config
+        # Maps a fixture name (argname) to all of the FixtureDefs in the test
+        # suite/plugins defined with this name. Populated by parsefactories().
+        # TODO: The order of the FixtureDefs list of each arg is significant,
+        #       explain.
+        self._arg2fixturedefs: Final[dict[str, list[FixtureDef[Any]]]] = {}
+        self._holderobjseen: Final[set[object]] = set()
+        # A mapping from a nodeid to a list of autouse fixtures it defines.
+        self._nodeid_autousenames: Final[dict[str, list[str]]] = {
+            "": self.config.getini("usefixtures"),
+        }
+        session.config.pluginmanager.register(self, "funcmanage")
+
+    def getfixtureinfo(
+        self,
+        node: nodes.Item,
+        func: Callable[..., object] | None,
+        cls: type | None,
+    ) -> FuncFixtureInfo:
+        """Calculate the :class:`FuncFixtureInfo` for an item.
+
+        If ``func`` is None, or if the item sets an attribute
+        ``nofuncargs = True``, then ``func`` is not examined at all.
+
+        :param node:
+            The item requesting the fixtures.
+        :param func:
+            The item's function.
+        :param cls:
+            If the function is a method, the method's class.
         """
-    
-        def __init__(self, session: Session) -> None:
-            self.session = session
-            self.config: Config = session.config
-            # Maps a fixture name (argname) to all of the FixtureDefs in the test
-            # suite/plugins defined with this name. Populated by parsefactories().
-            # TODO: The order of the FixtureDefs list of each arg is significant,
-            #       explain.
-            self._arg2fixturedefs: Final[dict[str, list[FixtureDef[Any]]]] = {}
-            self._holderobjseen: Final[set[object]] = set()
-            # A mapping from a nodeid to a list of autouse fixtures it defines.
-            self._nodeid_autousenames: Final[dict[str, list[str]]] = {
-                "": self.config.getini("usefixtures"),
-            }
-            session.config.pluginmanager.register(self, "funcmanage")
-    
-        def getfixtureinfo(
-            self,
-            node: nodes.Item,
-            func: Callable[..., object] | None,
-            cls: type | None,
-        ) -> FuncFixtureInfo:
-            """Calculate the :class:`FuncFixtureInfo` for an item.
-    
-            If ``func`` is None, or if the item sets an attribute
-            ``nofuncargs = True``, then ``func`` is not examined at all.
-    
-            :param node:
-                The item requesting the fixtures.
-            :param func:
-                The item's function.
-            :param cls:
-                If the function is a method, the method's class.
-            """
-            if func is not None and not getattr(node, "nofuncargs", False):
-                argnames = getfuncargnames(func, name=node.name, cls=cls)
-            else:
-                argnames = ()
-            usefixturesnames = self._getusefixturesnames(node)
-            autousenames = self._getautousenames(node)
-            initialnames = deduplicate_names(autousenames, usefixturesnames, argnames)
-    
-            direct_parametrize_args = _get_direct_parametrize_args(node)
-    
-            names_closure, arg2fixturedefs = self.getfixtureclosure(
-                parentnode=node,
-                initialnames=initialnames,
-                ignore_args=direct_parametrize_args,
-            )
-    
-            return FuncFixtureInfo(argnames, initialnames, names_closure, arg2fixturedefs)
-    
-        def pytest_plugin_registered(self, plugin: _PluggyPlugin, plugin_name: str) -> None:
-            # Fixtures defined in conftest plugins are only visible to within the
-            # conftest's directory. This is unlike fixtures in non-conftest plugins
-            # which have global visibility. So for conftests, construct the base
-            # nodeid from the plugin name (which is the conftest path).
-            if plugin_name and plugin_name.endswith("conftest.py"):
-                # Note: we explicitly do *not* use `plugin.__file__` here -- The
-                # difference is that plugin_name has the correct capitalization on
-                # case-insensitive systems (Windows) and other normalization issues
-                # (issue #11816).
-                conftestpath = absolutepath(plugin_name)
-                try:
-                    nodeid = str(conftestpath.parent.relative_to(self.config.rootpath))
-                except ValueError:
-                    nodeid = ""
-                if nodeid == ".":
-                    nodeid = ""
-                if os.sep != nodes.SEP:
-                    nodeid = nodeid.replace(os.sep, nodes.SEP)
-            else:
-                nodeid = None
-    
-            self.parsefactories(plugin, nodeid)
-    
-        def _getautousenames(self, node: nodes.Node) -> Iterator[str]:
-            """Return the names of autouse fixtures applicable to node."""
-            for parentnode in node.listchain():
-                basenames = self._nodeid_autousenames.get(parentnode.nodeid)
-                if basenames:
-                    yield from basenames
-    
-        def _getusefixturesnames(self, node: nodes.Item) -> Iterator[str]:
-            """Return the names of usefixtures fixtures applicable to node."""
-            for marker_node, mark in node.iter_markers_with_node(name="usefixtures"):
-                if not mark.args:
-                    marker_node.warn(
-                        PytestWarning(
-                            f"usefixtures() in {node.nodeid} without arguments has no effect"
-                        )
-                    )
-                yield from mark.args
-    
-        def getfixtureclosure(
-            self,
-            parentnode: nodes.Node,
-            initialnames: tuple[str, ...],
-            ignore_args: AbstractSet[str],
-        ) -> tuple[list[str], dict[str, Sequence[FixtureDef[Any]]]]:
-            # Collect the closure of all fixtures, starting with the given
-            # fixturenames as the initial set.  As we have to visit all
-            # factory definitions anyway, we also return an arg2fixturedefs
-            # mapping so that the caller can reuse it and does not have
-            # to re-discover fixturedefs again for each fixturename
-            # (discovering matching fixtures for a given name/node is expensive).
-    
-            fixturenames_closure = list(initialnames)
-    
-            arg2fixturedefs: dict[str, Sequence[FixtureDef[Any]]] = {}
-            lastlen = -1
-            while lastlen != len(fixturenames_closure):
-                lastlen = len(fixturenames_closure)
-                for argname in fixturenames_closure:
-                    if argname in ignore_args:
-                        continue
-                    if argname in arg2fixturedefs:
-                        continue
-                    fixturedefs = self.getfixturedefs(argname, parentnode)
-                    if fixturedefs:
-                        arg2fixturedefs[argname] = fixturedefs
-                        for arg in fixturedefs[-1].argnames:
-                            if arg not in fixturenames_closure:
-                                fixturenames_closure.append(arg)
-    
-            def sort_by_scope(arg_name: str) -> Scope:
-                try:
-                    fixturedefs = arg2fixturedefs[arg_name]
-                except KeyError:
-                    return Scope.Function
-                else:
-                    return fixturedefs[-1]._scope
-    
-            fixturenames_closure.sort(key=sort_by_scope, reverse=True)
-            return fixturenames_closure, arg2fixturedefs
-    
-        def pytest_generate_tests(self, metafunc: Metafunc) -> None:
-            """Generate new tests based on parametrized fixtures used by the given metafunc"""
-    
-            def get_parametrize_mark_argnames(mark: Mark) -> Sequence[str]:
-                args, _ = ParameterSet._parse_parametrize_args(*mark.args, **mark.kwargs)
-                return args
-    
-            for argname in metafunc.fixturenames:
-                # Get the FixtureDefs for the argname.
-                fixture_defs = metafunc._arg2fixturedefs.get(argname)
-                if not fixture_defs:
-                    # Will raise FixtureLookupError at setup time if not parametrized somewhere
-                    # else (e.g @pytest.mark.parametrize)
-                    continue
-    
-                # If the test itself parametrizes using this argname, give it
-                # precedence.
-                if any(
-                    argname in get_parametrize_mark_argnames(mark)
-                    for mark in metafunc.definition.iter_markers("parametrize")
-                ):
-                    continue
-    
-                # In the common case we only look at the fixture def with the
-                # closest scope (last in the list). But if the fixture overrides
-                # another fixture, while requesting the super fixture, keep going
-                # in case the super fixture is parametrized (#1953).
-                for fixturedef in reversed(fixture_defs):
-                    # Fixture is parametrized, apply it and stop.
-                    if fixturedef.params is not None:
-                        metafunc.parametrize(
-                            argname,
-                            fixturedef.params,
-                            indirect=True,
-                            scope=fixturedef.scope,
-                            ids=fixturedef.ids,
-                        )
-                        break
-    
-                    # Not requesting the overridden super fixture, stop.
-                    if argname not in fixturedef.argnames:
-                        break
-    
-                    # Try next super fixture, if any.
-    
-        def pytest_collection_modifyitems(self, items: list[nodes.Item]) -> None:
-            # Separate parametrized setups.
-            items[:] = reorder_items(items)
-    
-        def _register_fixture(
-            self,
-            *,
-            name: str,
-            func: _FixtureFunc[object],
-            nodeid: str | None,
-            scope: Scope | _ScopeName | Callable[[str, Config], _ScopeName] = "function",
-            params: Sequence[object] | None = None,
-            ids: tuple[object | None, ...] | Callable[[Any], object | None] | None = None,
-            autouse: bool = False,
-        ) -> None:
-            """Register a fixture
-    
-            :param name:
-                The fixture's name.
-            :param func:
-                The fixture's implementation function.
-            :param nodeid:
-                The visibility of the fixture. The fixture will be available to the
-                node with this nodeid and its children in the collection tree.
-                None means that the fixture is visible to the entire collection tree,
-                e.g. a fixture defined for general use in a plugin.
-            :param scope:
-                The fixture's scope.
-            :param params:
-                The fixture's parametrization params.
-            :param ids:
-                The fixture's IDs.
-            :param autouse:
-                Whether this is an autouse fixture.
-            """
-            fixture_def = FixtureDef(
-                config=self.config,
-                baseid=nodeid,
-                argname=name,
-                func=func,
-                scope=scope,
-                params=params,
-                ids=ids,
-                _ispytest=True,
-                _autouse=autouse,
-            )
-    
-            faclist = self._arg2fixturedefs.setdefault(name, [])
-            if fixture_def.has_location:
-                faclist.append(fixture_def)
-            else:
-                # fixturedefs with no location are at the front
-                # so this inserts the current fixturedef after the
-                # existing fixturedefs from external plugins but
-                # before the fixturedefs provided in conftests.
-                i = len([f for f in faclist if not f.has_location])
-                faclist.insert(i, fixture_def)
-            if autouse:
-                self._nodeid_autousenames.setdefault(nodeid or "", []).append(name)
-    
-        @overload
-        def parsefactories(
-            self,
-            node_or_obj: nodes.Node,
-        ) -> None:
-            raise NotImplementedError()
-    
-        @overload
-        def parsefactories(
-            self,
-            node_or_obj: object,
-            nodeid: str | None,
-        ) -> None:
-            raise NotImplementedError()
-    
-        def parsefactories(
-            self,
-            node_or_obj: nodes.Node | object,
-            nodeid: str | NotSetType | None = NOTSET,
-        ) -> None:
-            """Collect fixtures from a collection node or object.
-    
-            Found fixtures are parsed into `FixtureDef`s and saved.
-    
-            If `node_or_object` is a collection node (with an underlying Python
-            object), the node's object is traversed and the node's nodeid is used to
-            determine the fixtures' visibility. `nodeid` must not be specified in
-            this case.
-    
-            If `node_or_object` is an object (e.g. a plugin), the object is
-            traversed and the given `nodeid` is used to determine the fixtures'
-            visibility. `nodeid` must be specified in this case; None and "" mean
-            total visibility.
-            """
-            if nodeid is not NOTSET:
-                holderobj = node_or_obj
-            else:
-                assert isinstance(node_or_obj, nodes.Node)
-                holderobj = cast(object, node_or_obj.obj)  # type: ignore[attr-defined]
-                assert isinstance(node_or_obj.nodeid, str)
-                nodeid = node_or_obj.nodeid
-            if holderobj in self._holderobjseen:
-                return
-    
-            # Avoid accessing `@property` (and other descriptors) when iterating fixtures.
-            if not safe_isclass(holderobj) and not isinstance(holderobj, types.ModuleType):
-                holderobj_tp: object = type(holderobj)
-            else:
-                holderobj_tp = holderobj
-    
-            self._holderobjseen.add(holderobj)
-            for name in dir(holderobj):
-                # The attribute can be an arbitrary descriptor, so the attribute
-                # access below can raise. safe_getattr() ignores such exceptions.
-                obj_ub = safe_getattr(holderobj_tp, name, None)
-                if type(obj_ub) is FixtureFunctionDefinition:
-                    marker = obj_ub._fixture_function_marker
-                    if marker.name:
-                        fixture_name = marker.name
-                    else:
-                        fixture_name = name
-    
-                    # OK we know it is a fixture -- now safe to look up on the _instance_.
-                    try:
-                        obj = getattr(holderobj, name)
-                    # if the fixture is named in the decorator we cannot find it in the module
-                    except AttributeError:
-                        obj = obj_ub
-    
-                    func = obj._get_wrapped_function()
-    
-                    self._register_fixture(
-                        name=fixture_name,
-                        nodeid=nodeid,
-                        func=func,
-                        scope=marker.scope,
-                        params=marker.params,
-                        ids=marker.ids,
-                        autouse=marker.autouse,
-                    )
-    
-        def getfixturedefs(
-            self, argname: str, node: nodes.Node
-        ) -> Sequence[FixtureDef[Any]] | None:
-            """Get FixtureDefs for a fixture name which are applicable
-            to a given node.
-    
-            Returns None if there are no fixtures at all defined with the given
-            name. (This is different from the case in which there are fixtures
-            with the given name, but none applicable to the node. In this case,
-            an empty result is returned).
-    
-            :param argname: Name of the fixture to search for.
-            :param node: The requesting Node.
-            """
+        if func is not None and not getattr(node, "nofuncargs", False):
+            argnames = getfuncargnames(func, name=node.name, cls=cls)
+        else:
+            argnames = ()
+        usefixturesnames = self._getusefixturesnames(node)
+        autousenames = self._getautousenames(node)
+        initialnames = deduplicate_names(autousenames, usefixturesnames, argnames)
+
+        direct_parametrize_args = _get_direct_parametrize_args(node)
+
+        names_closure, arg2fixturedefs = self.getfixtureclosure(
+            parentnode=node,
+            initialnames=initialnames,
+            ignore_args=direct_parametrize_args,
+        )
+
+        return FuncFixtureInfo(argnames, initialnames, names_closure, arg2fixturedefs)
+
+    def pytest_plugin_registered(self, plugin: _PluggyPlugin, plugin_name: str) -> None:
+        # Fixtures defined in conftest plugins are only visible to within the
+        # conftest's directory. This is unlike fixtures in non-conftest plugins
+        # which have global visibility. So for conftests, construct the base
+        # nodeid from the plugin name (which is the conftest path).
+        if plugin_name and plugin_name.endswith("conftest.py"):
+            # Note: we explicitly do *not* use `plugin.__file__` here -- The
+            # difference is that plugin_name has the correct capitalization on
+            # case-insensitive systems (Windows) and other normalization issues
+            # (issue #11816).
+            conftestpath = absolutepath(plugin_name)
             try:
-                fixturedefs = self._arg2fixturedefs[argname]
+                nodeid = str(conftestpath.parent.relative_to(self.config.rootpath))
+            except ValueError:
+                nodeid = ""
+            if nodeid == ".":
+                nodeid = ""
+            if os.sep != nodes.SEP:
+                nodeid = nodeid.replace(os.sep, nodes.SEP)
+        else:
+            nodeid = None
+
+        self.parsefactories(plugin, nodeid)
+
+    def _getautousenames(self, node: nodes.Node) -> Iterator[str]:
+        """Return the names of autouse fixtures applicable to node."""
+        for parentnode in node.listchain():
+            basenames = self._nodeid_autousenames.get(parentnode.nodeid)
+            if basenames:
+                yield from basenames
+
+    def _getusefixturesnames(self, node: nodes.Item) -> Iterator[str]:
+        """Return the names of usefixtures fixtures applicable to node."""
+        for marker_node, mark in node.iter_markers_with_node(name="usefixtures"):
+            if not mark.args:
+                marker_node.warn(
+                    PytestWarning(
+                        f"usefixtures() in {node.nodeid} without arguments has no effect"
+                    )
+                )
+            yield from mark.args
+
+    def getfixtureclosure(
+        self,
+        parentnode: nodes.Node,
+        initialnames: tuple[str, ...],
+        ignore_args: AbstractSet[str],
+    ) -> tuple[list[str], dict[str, Sequence[FixtureDef[Any]]]]:
+        # Collect the closure of all fixtures, starting with the given
+        # fixturenames as the initial set.  As we have to visit all
+        # factory definitions anyway, we also return an arg2fixturedefs
+        # mapping so that the caller can reuse it and does not have
+        # to re-discover fixturedefs again for each fixturename
+        # (discovering matching fixtures for a given name/node is expensive).
+
+        fixturenames_closure = list(initialnames)
+
+        arg2fixturedefs: dict[str, Sequence[FixtureDef[Any]]] = {}
+        lastlen = -1
+        while lastlen != len(fixturenames_closure):
+            lastlen = len(fixturenames_closure)
+            for argname in fixturenames_closure:
+                if argname in ignore_args:
+                    continue
+                if argname in arg2fixturedefs:
+                    continue
+                fixturedefs = self.getfixturedefs(argname, parentnode)
+                if fixturedefs:
+                    arg2fixturedefs[argname] = fixturedefs
+                    for arg in fixturedefs[-1].argnames:
+                        if arg not in fixturenames_closure:
+                            fixturenames_closure.append(arg)
+
+        def sort_by_scope(arg_name: str) -> Scope:
+            try:
+                fixturedefs = arg2fixturedefs[arg_name]
             except KeyError:
-                return None
-            return tuple(self._matchfactories(fixturedefs, node))
-    
-        def _matchfactories(
-            self, fixturedefs: Iterable[FixtureDef[Any]], node: nodes.Node
-        ) -> Iterator[FixtureDef[Any]]:
-            parentnodeids = {n.nodeid for n in node.iter_parents()}
-            for fixturedef in fixturedefs:
-                if fixturedef.baseid in parentnodeids:
-                    yield fixturedef
-    
-    ```
+                return Scope.Function
+            else:
+                return fixturedefs[-1]._scope
+
+        fixturenames_closure.sort(key=sort_by_scope, reverse=True)
+        return fixturenames_closure, arg2fixturedefs
+
+    def pytest_generate_tests(self, metafunc: Metafunc) -> None:
+        """Generate new tests based on parametrized fixtures used by the given metafunc"""
+
+        def get_parametrize_mark_argnames(mark: Mark) -> Sequence[str]:
+            args, _ = ParameterSet._parse_parametrize_args(*mark.args, **mark.kwargs)
+            return args
+
+        for argname in metafunc.fixturenames:
+            # Get the FixtureDefs for the argname.
+            fixture_defs = metafunc._arg2fixturedefs.get(argname)
+            if not fixture_defs:
+                # Will raise FixtureLookupError at setup time if not parametrized somewhere
+                # else (e.g @pytest.mark.parametrize)
+                continue
+
+            # If the test itself parametrizes using this argname, give it
+            # precedence.
+            if any(
+                argname in get_parametrize_mark_argnames(mark)
+                for mark in metafunc.definition.iter_markers("parametrize")
+            ):
+                continue
+
+            # In the common case we only look at the fixture def with the
+            # closest scope (last in the list). But if the fixture overrides
+            # another fixture, while requesting the super fixture, keep going
+            # in case the super fixture is parametrized (#1953).
+            for fixturedef in reversed(fixture_defs):
+                # Fixture is parametrized, apply it and stop.
+                if fixturedef.params is not None:
+                    metafunc.parametrize(
+                        argname,
+                        fixturedef.params,
+                        indirect=True,
+                        scope=fixturedef.scope,
+                        ids=fixturedef.ids,
+                    )
+                    break
+
+                # Not requesting the overridden super fixture, stop.
+                if argname not in fixturedef.argnames:
+                    break
+
+                # Try next super fixture, if any.
+
+    def pytest_collection_modifyitems(self, items: list[nodes.Item]) -> None:
+        # Separate parametrized setups.
+        items[:] = reorder_items(items)
+
+    def _register_fixture(
+        self,
+        *,
+        name: str,
+        func: _FixtureFunc[object],
+        nodeid: str | None,
+        scope: Scope | _ScopeName | Callable[[str, Config], _ScopeName] = "function",
+        params: Sequence[object] | None = None,
+        ids: tuple[object | None, ...] | Callable[[Any], object | None] | None = None,
+        autouse: bool = False,
+    ) -> None:
+        """Register a fixture
+
+        :param name:
+            The fixture's name.
+        :param func:
+            The fixture's implementation function.
+        :param nodeid:
+            The visibility of the fixture. The fixture will be available to the
+            node with this nodeid and its children in the collection tree.
+            None means that the fixture is visible to the entire collection tree,
+            e.g. a fixture defined for general use in a plugin.
+        :param scope:
+            The fixture's scope.
+        :param params:
+            The fixture's parametrization params.
+        :param ids:
+            The fixture's IDs.
+        :param autouse:
+            Whether this is an autouse fixture.
+        """
+        fixture_def = FixtureDef(
+            config=self.config,
+            baseid=nodeid,
+            argname=name,
+            func=func,
+            scope=scope,
+            params=params,
+            ids=ids,
+            _ispytest=True,
+            _autouse=autouse,
+        )
+
+        faclist = self._arg2fixturedefs.setdefault(name, [])
+        if fixture_def.has_location:
+            faclist.append(fixture_def)
+        else:
+            # fixturedefs with no location are at the front
+            # so this inserts the current fixturedef after the
+            # existing fixturedefs from external plugins but
+            # before the fixturedefs provided in conftests.
+            i = len([f for f in faclist if not f.has_location])
+            faclist.insert(i, fixture_def)
+        if autouse:
+            self._nodeid_autousenames.setdefault(nodeid or "", []).append(name)
+
+    @overload
+    def parsefactories(
+        self,
+        node_or_obj: nodes.Node,
+    ) -> None:
+        raise NotImplementedError()
+
+    @overload
+    def parsefactories(
+        self,
+        node_or_obj: object,
+        nodeid: str | None,
+    ) -> None:
+        raise NotImplementedError()
+
+    def parsefactories(
+        self,
+        node_or_obj: nodes.Node | object,
+        nodeid: str | NotSetType | None = NOTSET,
+    ) -> None:
+        """Collect fixtures from a collection node or object.
+
+        Found fixtures are parsed into `FixtureDef`s and saved.
+
+        If `node_or_object` is a collection node (with an underlying Python
+        object), the node's object is traversed and the node's nodeid is used to
+        determine the fixtures' visibility. `nodeid` must not be specified in
+        this case.
+
+        If `node_or_object` is an object (e.g. a plugin), the object is
+        traversed and the given `nodeid` is used to determine the fixtures'
+        visibility. `nodeid` must be specified in this case; None and "" mean
+        total visibility.
+        """
+        if nodeid is not NOTSET:
+            holderobj = node_or_obj
+        else:
+            assert isinstance(node_or_obj, nodes.Node)
+            holderobj = cast(object, node_or_obj.obj)  # type: ignore[attr-defined]
+            assert isinstance(node_or_obj.nodeid, str)
+            nodeid = node_or_obj.nodeid
+        if holderobj in self._holderobjseen:
+            return
+
+        # Avoid accessing `@property` (and other descriptors) when iterating fixtures.
+        if not safe_isclass(holderobj) and not isinstance(holderobj, types.ModuleType):
+            holderobj_tp: object = type(holderobj)
+        else:
+            holderobj_tp = holderobj
+
+        self._holderobjseen.add(holderobj)
+        for name in dir(holderobj):
+            # The attribute can be an arbitrary descriptor, so the attribute
+            # access below can raise. safe_getattr() ignores such exceptions.
+            obj_ub = safe_getattr(holderobj_tp, name, None)
+            if type(obj_ub) is FixtureFunctionDefinition:
+                marker = obj_ub._fixture_function_marker
+                if marker.name:
+                    fixture_name = marker.name
+                else:
+                    fixture_name = name
+
+                # OK we know it is a fixture -- now safe to look up on the _instance_.
+                try:
+                    obj = getattr(holderobj, name)
+                # if the fixture is named in the decorator we cannot find it in the module
+                except AttributeError:
+                    obj = obj_ub
+
+                func = obj._get_wrapped_function()
+
+                self._register_fixture(
+                    name=fixture_name,
+                    nodeid=nodeid,
+                    func=func,
+                    scope=marker.scope,
+                    params=marker.params,
+                    ids=marker.ids,
+                    autouse=marker.autouse,
+                )
+
+    def getfixturedefs(
+        self, argname: str, node: nodes.Node
+    ) -> Sequence[FixtureDef[Any]] | None:
+        """Get FixtureDefs for a fixture name which are applicable
+        to a given node.
+
+        Returns None if there are no fixtures at all defined with the given
+        name. (This is different from the case in which there are fixtures
+        with the given name, but none applicable to the node. In this case,
+        an empty result is returned).
+
+        :param argname: Name of the fixture to search for.
+        :param node: The requesting Node.
+        """
+        try:
+            fixturedefs = self._arg2fixturedefs[argname]
+        except KeyError:
+            return None
+        return tuple(self._matchfactories(fixturedefs, node))
+
+    def _matchfactories(
+        self, fixturedefs: Iterable[FixtureDef[Any]], node: nodes.Node
+    ) -> Iterator[FixtureDef[Any]]:
+        parentnodeids = {n.nodeid for n in node.iter_parents()}
+        for fixturedef in fixturedefs:
+            if fixturedef.baseid in parentnodeids:
+                yield fixturedef
+
+```
 
 </DetailsSummary>
 
@@ -677,14 +686,14 @@ Thiết kế này cho phép:
 
 - Override fixture tự nhiên
 - Plugin inject fixture
-- Resolve fixture nhanh O(1)
+- Lookup theo tên là O(1) (phần match theo node thì tuyến tính, nhưng list fixturedef cho một tên thường rất ngắn)
 - Tách rõ **definition** và **execution**
 
-# **5. Dependency resolution – từ test function đến fixture graph**
+## 5. Dependency resolution – từ test function đến fixture graph
 
 Sau khi pytest chọn được test item để chạy, nó bắt đầu **resolve fixture**.
 
-## 5.1. Test signature
+### 5.1. Test signature
 
 Ví dụ:
 
@@ -706,7 +715,7 @@ Mỗi param name = một fixture dependency.
 
 ---
 
-## 5.2. Param name → FixtureDef
+### 5.2. Param name → FixtureDef
 
 Với mỗi dependency:
 
@@ -716,7 +725,7 @@ Với mỗi dependency:
 
 ---
 
-## 5.3. Resolve đệ quy – fixture dùng fixture khác
+### 5.3. Resolve đệ quy – fixture dùng fixture khác
 
 Nếu fixture phụ thuộc fixture khác:
 
@@ -745,17 +754,28 @@ Cuối cùng pytest xây dựng được một **Directed Acyclic Graph**:
 config → db → test_user
 ```
 
-Pytest **detect và reject circular dependency** ngay tại bước này.
+Một điểm mình khá bất ngờ: **bước này KHÔNG detect circular dependency**.
 
-⇒ Tóm lại,  Fixture resolution **không gọi fixture** mà chỉ quyết định ****Fixture nào sẽ được dùng và thứ tự phụ thuộc. ****
+`getfixtureclosure()` chỉ loop cho tới khi list không dài thêm nữa — nó không hề check cycle. Fixture đệ quy bị bắt muộn hơn nhiều, ở **execution time**, qua `FixtureLookupError`:
 
-# **6. Fixture cache & scope**
+```python
+if self.argname in available:
+    msg = f" recursive dependency involving fixture '{self.argname}' detected"
+else:
+    msg = f"fixture '{self.argname}' not found"
+```
+
+Tức là pytest cố tình để resolution phase "ngây thơ", và đẩy việc phát hiện đệ quy xuống lúc setup — khi nó đã có đủ context để in ra một error message tử tế (kèm danh sách fixture available).
+
+⇒ Tóm lại, fixture resolution **không gọi fixture**, mà chỉ quyết định **fixture nào sẽ được dùng và thứ tự phụ thuộc**.
+
+## 6. Fixture cache & scope
 
 Sau khi resolve xong graph, pytest bắt đầu **execute fixture**.
 
 ---
 
-## 6.1. Cache nằm ở đâu?
+### 6.1. Cache nằm ở đâu?
 
 Cache nằm trong chính `FixtureDef`:
 
@@ -763,24 +783,37 @@ Cache nằm trong chính `FixtureDef`:
 self.cached_result
 ```
 
-Giá trị cache gồm:
+Giá trị cache là một **3-tuple**:
 
 ```
-(value, cache_key)
+(value, cache_key, exc_info)
 ```
 
 - `None` → fixture chưa chạy
 - Có giá trị → reuse
 
+Phần tử thứ ba mới là chỗ thú vị: **pytest cache cả exception**. Nhìn lại `execute()` ở trên:
+
+```python
+if self.cached_result[2] is not None:
+    exc, exc_tb = self.cached_result[2]
+    raise exc.with_traceback(exc_tb)
+```
+
+Nghĩa là nếu một session-scoped fixture fail ở test đầu tiên, thì 500 test sau **không chạy lại fixture đó** — chúng nhận lại đúng exception cũ kèm nguyên traceback gốc. Đây là lý do khi một fixture nặng bị lỗi, bạn thấy cả suite đỏ ngay lập tức chứ không phải chờ nó retry 500 lần.
+
 ---
 
-## 6.2. Scope quyết định vòng đời cache
+### 6.2. Scope quyết định vòng đời cache
+
+Pytest có 5 scope, xếp theo thứ tự `function < class < module < package < session`:
 
 | Scope | Cache tồn tại |
 | --- | --- |
 | function | mỗi test |
 | class | mỗi class |
 | module | mỗi module |
+| package | mỗi package |
 | session | toàn bộ pytest run |
 
 Cache được **clear khi scope kết thúc**.
@@ -788,7 +821,7 @@ Cache được **clear khi scope kết thúc**.
 > Session-scoped fixture = Singleton
 > 
 
-## 6.3. Parametrized fixture & cache key
+### 6.3. Parametrized fixture & cache key
 
 Với fixture có `params`:
 
@@ -808,7 +841,7 @@ Một fixture có thể có **nhiều instance cache**.
 
 ---
 
-# **7. Fixture execution & teardown**
+## 7. Fixture execution & teardown
 
 Pytest **không gọi fixture theo thứ tự xuất hiện trong test**, mà theo **dependency graph**.
 
@@ -843,7 +876,7 @@ Dependency **luôn được setup trước**.
 
 ---
 
-## 7.1. Execution flow của một fixture
+### 7.1. Execution flow của một fixture
 
 Khi pytest chuẩn bị execute một fixture, nó làm:
 
@@ -868,19 +901,19 @@ return value
 
 ---
 
-## 7.2. Fixture `return` vs `yield`
+### 7.2. Fixture `return` vs `yield`
 
 Pytest hỗ trợ **hai kiểu fixture execution**.
 
 ---
 
-### 7.2.1. Fixture dùng `return`
+#### 7.2.1. Fixture dùng `return`
 
 ```python
 @pytest.fixture
 def resource():
     r = acquire()
-return r
+    return r
 ```
 
 - Setup: `acquire()`
@@ -889,13 +922,13 @@ return r
 
 ---
 
-### 7.2.2. Fixture dùng `yield`
+#### 7.2.2. Fixture dùng `yield`
 
 ```python
 @pytest.fixture
 def resource():
     r = acquire()
-yield r
+    yield r
     release(r)
 ```
 
@@ -909,7 +942,7 @@ Pytest **wrap fixture function thành generator** và quản lý lifecycle.
 
 ---
 
-## 7.3. Finalizer – teardown chủ động
+### 7.3. Finalizer – teardown chủ động
 
 Ngoài `yield`, pytest cho phép teardown thông qua **finalizer**:
 
@@ -918,11 +951,10 @@ Ngoài `yield`, pytest cho phép teardown thông qua **finalizer**:
 def resource(request):
     r = acquire()
     request.addfinalizer(lambda: release(r))
-return r
-
+    return r
 ```
 
-- `request` là **Fixture Ref (`FixtureRequest`)**
+- `request` là một **`FixtureRequest`** — fixture built-in mà pytest inject vào để fixture của bạn "nói chuyện" ngược lại với runtime
 - `addfinalizer` push cleanup function vào stack
 
  Pytest gọi finalizer khi:
@@ -932,7 +964,7 @@ return r
 
 ---
 
-## 7.4. Thứ tự teardown – LIFO & Ngược dependency
+### 7.4. Thứ tự teardown – LIFO & Ngược dependency
 
 Teardown luôn chạy theo: **Ngược thứ tự dependency - LIFO (Stack)**
 
@@ -953,7 +985,7 @@ Teardown:  C → B → A
 
 ---
 
-## 7.5. Teardown theo scope
+### 7.5. Teardown theo scope
 
 Teardown **không chạy ngay sau test** nếu scope lớn hơn `function`.
 
@@ -962,13 +994,14 @@ Teardown **không chạy ngay sau test** nếu scope lớn hơn `function`.
 | function | sau mỗi test |
 | class | sau khi class xong |
 | module | sau khi module xong |
+| package | sau khi package xong |
 | session | khi pytest kết thúc |
 
 Đây là lý do session-scoped fixture sống “lâu”.
 
 ---
 
-## 7.6. Exception & teardown
+### 7.6. Exception & teardown
 
 Ngay cả khi:
 
@@ -979,3 +1012,19 @@ Pytest **vẫn đảm bảo teardown được chạy** cho:
 
 - Fixture đã setup thành công
 - Theo đúng thứ tự dependency
+
+---
+
+## Tóm tắt
+
+Sau khi lội qua đống source, thứ đọng lại với mình không phải là chi tiết implementation, mà là **cách pytest chia việc**:
+
+- `@pytest.fixture` không chạy gì cả — nó chỉ thay function bằng một object mang marker
+- `FixtureDef` là **blueprint**, không phải instance. Cache sống ở đây.
+- `FixtureManager` chỉ **index và chọn** definition. Nó không cache, không giữ instance, không chạy fixture.
+- Resolution dựng ra dependency graph nhưng **không gọi fixture** — và cũng không check cycle
+- Execution mới là nơi cache, exception và teardown được xử lý
+
+Chính việc tách bạch **definition / resolution / execution** mới là thứ làm cho override, plugin injection và scope management hoạt động được mà không giẫm chân nhau. Nếu gộp ba thứ đó vào một chỗ, fixture sẽ thành một mớ bòng bong ngay.
+
+Ở **Part 2**, mình sẽ thử build một mini version bằng Go để xem tự tay dựng dependency graph + lifecycle manager thì đau ở đâu. Hẹn gặp lại =)))
