@@ -1,0 +1,301 @@
+---
+title: "Tối ưu Pytest suite - nhanh hơn 8.5 lần mà không viết lại một test nào"
+summary: "Suite chạy 20 phút, ngày xui vượt cả tiếng. Sau vài thay đổi nhỏ nhưng đúng chỗ, xuống còn ~2 phút. Không refactor toàn bộ, không viết lại test."
+postLayout: column
+cover: '@/assets/pytest-optimize/cover.png'
+date: '2026-08-20'
+draft: false
+tags: [pytest, testing]
+---
+
+Bạn có nhận ra là mình rất hay gặp cảnh này không:
+
+- Push code, trigger pipeline
+- Mở Jira/Slack làm việc khác vì đợi lâu quá
+- 25 phút sau pipeline đỏ, vì một cái flaky test
+- Retry. Đợi thêm 25 phút.
+- Tới lúc xanh thì… quên mất mình đang sửa cái gì 🤡
+
+---
+
+## Test chậm không phải vấn đề của CI, nó là vấn đề của cả team
+
+Cái này quan trọng nên phải nói trước. Test chậm không chỉ gây khó chịu, nó làm hỏng cả cách team làm việc:
+
+| Test chậm gây ra | Hệ quả thật sự |
+| --- | --- |
+| Chờ 25 phút mỗi lần push | Context switching liên tục, quay lại rất mệt |
+| Không ai muốn đợi 2 lần | MR phình to, gom cả chục thay đổi vào một PR "cho đỡ mất công" |
+| MR to | Review lâu hơn, sót bug nhiều hơn, revert khó hơn |
+| CI mất hàng giờ | Test không còn là công cụ hỗ trợ, nó thành **bottleneck** |
+
+Và khi test đã thành bottleneck thì bước tiếp theo luôn là: người ta bắt đầu skip nó. `--maxfail=1`, tắt job trong pipeline, "cái này để merge xong chạy sau"...
+
+Vấn đề kỹ thuật lúc này đã biến thành vấn đề productivity: release chậm, regression phát hiện trễ, và tệ nhất là **cả team mất niềm tin vào test suite**.
+
+---
+
+## Điểm khởi đầu
+
+Giống hầu hết project khác: giai đoạn đầu ưu tiên coverage và tốc độ ship feature. Không ai nghĩ tới sức khoẻ lâu dài của test suite. Giải pháp nhanh dần dần thành technical debt.
+
+Lúc bắt tay vào, các suite trung bình 20-25 phút, ngày xui vượt cả tiếng - đủ để chạm giới hạn 2 tiếng của GitLab CI.
+
+Mục tiêu ban đầu nghe đơn giản mà khá tham vọng:
+
+> **Mọi commit, mọi MR đều chạy được full test.**
+
+Soi qua một vòng, lộ ra bốn vấn đề - và cả bốn đều là vấn đề về **architecture**, không phải vấn đề config:
+
+1. Setup test data chậm và không nhất quán
+2. File test monolithic quá lớn, cản trở parallelize
+3. Hardcode `sleep()` và timeout khắp nơi
+4. Error handling pattern gây retry và chờ dư thừa
+
+Sau khi refactor thử hai suite đầu, mục tiêu được chốt lại cho cụ thể: **không suite nào được chạy quá 3 phút.**
+
+---
+
+## Bước 0: Đo trước khi tối ưu
+
+Đây là bước hay bị bỏ qua nhất, và cũng là bước quan trọng nhất. Không đo thì bạn sẽ tối ưu vào chỗ… trông có vẻ chậm, chứ không phải chỗ thật sự chậm.
+
+```bash
+pytest --durations=25
+```
+
+Nó in ra 25 test chậm nhất. Thường thì chỉ cần nhìn cái list này là đã thấy 80% vấn đề.
+
+Nhưng `--durations` chỉ cho biết **test** nào chậm, không cho biết **file** nào chậm - mà khi chạy parallel thì file mới là đơn vị quan trọng. Nên mình viết thêm một hook nhỏ trong `conftest.py`:
+
+```python
+# conftest.py
+import time
+from collections import defaultdict
+
+import pytest
+
+_durations = defaultdict(float)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    start = time.perf_counter()
+    yield
+    _durations[item.location[0]] += time.perf_counter() - start
+
+
+def pytest_sessionfinish(session, exitstatus):
+    worker = getattr(session.config, "workerinput", {}).get("workerid", "master")
+    for path, total in sorted(_durations.items(), key=lambda kv: -kv[1]):
+        print(f"[{worker}] {total:7.2f}s  {path}")
+```
+
+Điểm hay: hook này chạy **được với `pytest-xdist`**, và `workerid` cho bạn thấy từng worker gánh bao nhiêu việc. Đây chính là data để phát hiện workload imbalance ở phần sau.
+
+Sau đó đẩy metrics vào InfluxDB và visualize bằng Grafana:
+
+- Duration trung bình mỗi suite
+- Workload distribution giữa các worker
+- Xu hướng cải thiện theo thời gian
+
+Cái này nghe hơi "over-engineer" cho một việc tối ưu test, nhưng nó có một side effect rất giá trị: **cả team nhìn thấy tiến độ**, không phải chỉ một người biết. Rất khác so với việc bạn tự đo trên máy mình rồi báo "em thấy nhanh hơn rồi ạ".
+
+---
+
+## Bước 1: Parallelize với pytest-xdist
+
+Bước hiển nhiên nhất, và cũng cho kết quả lớn nhất.
+
+```bash
+pytest -n auto --dist=loadscope
+```
+
+Nhưng cái `--dist` này mới là chỗ đáng nói. Chọn sai là **auto chậm hoặc auto fail**, và đây là lỗi phổ biến nhất khi mới bật parallel.
+
+### Bảng tra `--dist`
+
+| `--dist` | Distribute theo | Dùng khi |
+| --- | --- | --- |
+| `no` | Không chia, 1 process | Debug local |
+| `load` | Từng test → worker nào rảnh trước | Test **độc lập hoàn toàn** |
+| `worksteal` | Như `load`, worker rảnh "cướp" việc của worker chậm | Test độc lập nhưng duration lệch nhau nhiều |
+| `loadscope` | Gom theo class, rồi theo module (file) | Test cùng class/file **share state** |
+| `loadfile` | Gom cứng theo file, bỏ qua class | Muốn chắc 100% cùng file = cùng worker |
+| `loadgroup` | Theo label `@pytest.mark.xdist_group` | Ranh giới share state **không** trùng file/class |
+| `each` | Chạy **full suite** trên **từng** worker | Test trên nhiều environment (nhiều Python version, nhiều browser) |
+
+Vài chỗ dễ sập bẫy:
+
+**`load` là default khi có `-n`.** Nghĩa là nếu bạn chỉ gõ `pytest -n auto` thì bạn đang dùng `load`. Nếu hai test trong cùng file share fixture `module`-scope hoặc share biến global, `load` hoàn toàn có thể đẩy chúng sang hai worker khác nhau chạy cùng lúc → race condition, fail ngẫu nhiên, **không reproduce được**. Kiểu bug tốn cả ngày để tìm.
+
+**`each` không phải để tăng tốc.** Tên nghe như "chia cho mỗi worker" nhưng thật ra nó chạy toàn bộ suite trên mọi worker. Bật nhầm cái này thì suite không nhanh hơn, nó chỉ tốn resource hơn.
+
+**`-n auto` không phải lúc nào cũng đúng.** `auto` lấy số CPU mà nó *thấy*, và trên shared CI runner thì con số đó thường là CPU của cả máy host chứ không phải phần bạn được cấp. Kết quả: oversubscribe, các worker giành CPU nhau, chậm hơn cả chạy ít worker. Cứ thử `-n 4`, `-n 8` rồi so, đừng tin `auto` vô điều kiện.
+
+### Chọn nhanh
+
+- Test độc lập hoàn toàn → `load`, hoặc `worksteal` nếu duration test lệch nhau nhiều
+- Test share state ở cấp file/class → `loadscope` hoặc `loadfile`
+- Ranh giới share state lộn xộn, không theo file → `loadgroup`
+- Chạy cùng một suite trên nhiều environment cùng lúc → `each`
+
+Case của mình: nhiều test trong cùng file share data với nhau, nên không parallelize được ở cấp test, chỉ ở cấp **file** → `loadscope`.
+
+### Nhưng bật xdist lại lộ ra hai vấn đề mới
+
+Đây là phần không ai nói với bạn khi khuyên "cứ bật xdist đi":
+
+1. **Workload imbalance.** Có file chứa hàng chục test nhẹ, có file chỉ vài test nhưng cực nặng. Kết quả: một worker ôm cái file khổng lồ chạy 15 phút, trong khi 7 worker khác đã rảnh từ phút thứ 3. Tổng thời gian suite = thời gian của file chậm nhất.
+2. **Shared state + test data không unique.** Nhiều test dùng chung object data. Chạy sequential thì không sao. Chạy parallel thì đụng nhau ngay.
+
+Hai vấn đề này **không sửa được bằng config**. Nó đòi thay đổi ở tầng tổ chức test và setup data. Đó là các bước tiếp theo.
+
+---
+
+## Bước 2: Đập nhỏ file test monolithic
+
+Test base tích luỹ qua nhiều năm, tổ chức theo business logic, nên có file lên tới 1500 dòng, có file chỉ vài chục dòng.
+
+Với `loadscope`, file 1500 dòng đó = **một worker duy nhất, chạy sequential, từ đầu đến cuối**. Nó chính là cái trần thời gian của cả suite.
+
+Nên ưu tiên xử lý file lớn trước, chẻ nhỏ theo logic unit. Workload giữa các worker đều lên hẳn.
+
+Nhân lúc refactor thì audit luôn nội dung test - phần này phối hợp với QA:
+
+- Bỏ scenario đã lỗi thời (có những test đang verify một business rule đã đổi từ 2 năm trước)
+- Tách test kiểu "làm tất cả mọi thứ trong một hàm" thành nhiều test nhỏ
+
+Cái thứ hai đáng giá hơn tưởng tượng. Một test 200 dòng làm 8 việc, khi fail thì bạn chỉ biết "nó fail", phải đọc log dò xem fail ở việc thứ mấy. Tách ra thành 8 test thì tên test đã nói cho bạn biết chỗ vỡ.
+
+---
+
+## Bước 3: Từ `sleep()` sang smart waiting
+
+`sleep()` hardcode là nguồn chậm ẩn lớn nhất. Bỏ một `sleep(30)` thôi nhiều khi biến một test vài phút thành test vài giây.
+
+Nhưng xoá wait một cách mù quáng thì test fail ngay, nhất là khi gọi service bên ngoài. Vấn đề của `sleep(30)` không phải là "chờ", mà là **hardcode wait**: hệ thống sẵn sàng sau 2 giây thì bạn vẫn ngồi đợi 28 giây nữa, còn ngày nào nó cần 35 giây thì bạn fail.
+
+Giải pháp: thay toàn bộ hardcode sleep bằng các hàm `wait_*` atomic, bọc qua một helper retry dùng chung.
+
+```python
+import time
+
+
+def wait_until(check, *, timeout=60, interval=0.5):
+    """Poll `check` cho tới khi nó không raise AssertionError nữa."""
+    deadline = time.monotonic() + timeout
+    last_error = None
+
+    while time.monotonic() < deadline:
+        try:
+            return check()
+        except AssertionError as err:
+            last_error = err
+            time.sleep(interval)
+
+    raise AssertionError(f"Timeout sau {timeout}s. Lỗi cuối: {last_error}")
+```
+
+Rồi mỗi điều kiện chờ là một hàm nhỏ, tên nói rõ nó đang chờ cái gì:
+
+```python
+def wait_order_status(order_id: str, expected: str, timeout: int = 30):
+    def check():
+        order = api.get_order(order_id)          # 4xx/5xx → raise, không retry
+        assert order.status == expected, (
+            f"order {order_id} đang ở {order.status}, chờ {expected}"
+        )
+        return order
+
+    return wait_until(check, timeout=timeout)
+```
+
+Chi tiết nhỏ nhưng quan trọng: chỉ retry trên `AssertionError`. Nếu API trả `404` hay `500` thì để nó raise và **fail ngay**, đừng retry. Vì retry một lỗi không bao giờ tự khỏi thì bạn chỉ đang trả thêm 30 giây để nhận cùng một kết quả fail. Đây chính là "error handling pattern gây chờ dư thừa" ở danh sách vấn đề ban đầu.
+
+Được gì:
+
+- **Chờ đúng bằng thời gian cần chờ**, không hơn
+- Fail nhanh khi gặp lỗi thật, không đợi hết timeout
+- Error message nói rõ nó đang chờ gì và thực tế nhận được gì - khỏi phải đoán
+
+---
+
+## Bước 4: Test data không unique - kẻ thù giấu mặt của parallel
+
+Data share nhau gần như không gây vấn đề gì khi chạy single process. Nên nó nằm im trong repo nhiều năm mà không ai biết. Chạy parallel thì collision lộ ra ngay.
+
+Nguyên nhân thường gặp nhất, và nghe rất quen: **tester copy một constant rồi reuse qua nhiều file.**
+
+```python
+# test_orders.py
+TEST_ACCOUNT = "ACC-QA-001"
+
+# test_payments.py  ← copy từ file trên
+TEST_ACCOUNT = "ACC-QA-001"
+```
+
+Hai file này chạy parallel trên hai worker, cùng thao tác trên một account. Test A fail vì test B vừa đổi state của nó. Bạn chạy lại một mình test A thì nó pass. Kinh điển.
+
+Ba rule được đặt ra:
+
+1. Entity dùng chung phải theo hierarchy rõ ràng: **global → suite → module**
+2. Mỗi file test dùng data riêng, **không reuse chéo**
+3. Isolation ở cấp **file**, không phải cấp test
+
+Rule số 3 là một trade-off có ý thức: isolation từng test thì sạch hơn, nhưng tốn kém hơn nhiều (mỗi test một lần tạo data = setup cost nhân với số test). Cấp file là điểm cân bằng - vừa khớp với `loadscope`, vừa không phải trả giá setup cho từng test.
+
+Trong code thì nó thành fixture `module`-scope tự sinh data riêng:
+
+```python
+from uuid import uuid4
+
+@pytest.fixture(scope="module")
+def account(api, request):
+    name = f"{request.module.__name__}-{uuid4().hex[:8]}"
+    acc = api.create_account(name)
+    yield acc
+    api.delete_account(acc.id)
+```
+
+Kết quả: chạy parallel trở nên **predictable**. Và debug dễ hơn hẳn - không còn cảnh test A fail vì test B chạy trước đó đụng chung data.
+
+---
+
+## Bước 5: Presetup - tự động hoá việc chuẩn bị data
+
+Trước đây test data đến từ artifact do QA chuẩn bị manual. Cách này hoạt động được lúc suite còn nhỏ, càng về sau càng thành bottleneck: environment mới thì phải chuẩn bị lại, data lệch nhau giữa các env, và người biết cách chuẩn bị thì chỉ có một hai người.
+
+Ý tưởng "Presetup" rất đơn giản: **thay vì giả định data đã có, thì tự đảm bảo nó có.**
+
+```python
+@pytest.fixture(scope="session")
+def base_instruments(api):
+    for symbol in REQUIRED_SYMBOLS:
+        if not api.instrument_exists(symbol):
+            api.create_instrument(symbol)
+    return REQUIRED_SYMBOLS
+```
+
+Cụ thể là:
+
+- Check entity cần thiết đã tồn tại chưa
+- Chưa có (hoặc cần update) thì tạo/update tự động
+- Gắn logic này vào fixture ở nhiều scope tuỳ mức độ dùng chung: `session`, `package`, `module`
+- Thêm nightly job đưa data về state canonical sạch
+
+Presetup không trực tiếp làm test nhanh hơn nhiều, nhưng nó xử lý được cái thứ tốn thời gian nhất: **flaky test do environment không đồng nhất**. Mà một flaky test trong pipeline = một lần retry = mất toàn bộ thời gian bạn vừa tối ưu được.
+
+---
+
+## Kết quả
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Trung bình mỗi suite | ~17 phút (20-25 phút lúc cao điểm) | **~2 phút** |
+| Ngày xui | Vượt 1 tiếng, chạm giới hạn 2h của GitLab CI | Vẫn ~2 phút |
+| Tính predictable | Retry + hardcode wait + timeout dây chuyền | Ổn định |
+
+Giảm khoảng **88%**, tương đương nhanh hơn **8.5 lần**.
+
+Nhưng con số không phải phần giá trị nhất. Phần giá trị nhất là **kết quả chạy trở nên predictable**, và khi fail thì tìm nguyên nhân nhanh hơn rõ rệt.

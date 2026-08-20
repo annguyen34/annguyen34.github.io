@@ -1,0 +1,552 @@
+---
+title: "Python: mutable vs immutable"
+summary: "Biến trong Python là cái tên, không phải cái hộp. Từ một câu đó suy ra được mutable default argument, shallow copy, pass by object reference, và cả chuyện small int cache bị giải thích sai ở khắp nơi."
+postLayout: column
+cover: '@/assets/python-immutable-mutable/cover.png'
+date: '2026-08-20'
+draft: false
+tags: [python]
+---
+
+Đố bạn function này in ra gì:
+
+```python
+def add_item(item, bucket=[]):
+    bucket.append(item)
+    return bucket
+
+print(add_item("a"))
+print(add_item("b"))
+print(add_item("c"))
+```
+
+Nếu bạn đoán `['a']`, `['b']`, `['c']` thì… sai. Nó in ra:
+
+```
+['a']
+['a', 'b']
+['a', 'b', 'c']
+```
+
+Và nó không phải bug của Python - nó là hệ quả trực tiếp của việc **object trong Python là mutable hay immutable**.
+
+
+---
+
+## 1. Trong Python, mọi thứ đều là object
+
+Điểm khác biệt gốc so với C/C++: **biến trong Python không "chứa" giá trị**. Biến chỉ là một cái **tên** được gán (bind) tới một object nằm đâu đó trong memory.
+
+Nên chuyện này hoàn toàn bình thường:
+
+```python
+a = 1
+a = "giờ là string rồi"
+a = [1, 2, 3]
+```
+
+`a` không "đổi kiểu". `a` chỉ lần lượt trỏ sang 3 object khác nhau. Bản thân các object đó không hề đổi.
+
+Hệ quả: một class rỗng cũng là object, function cũng là object, class cũng là object.
+
+```python
+class Foo:
+    pass
+
+print(type(Foo))        # <class 'type'>  -> class cũng là object
+print(type(add_item))   # <class 'function'>
+```
+
+---
+
+## 2. Mỗi object có đúng 3 thứ
+
+| Thứ | Lấy bằng | Đổi được không? |
+| --- | --- | --- |
+| **identity** | `id(obj)` | Không, cố định suốt lifetime của object |
+| **type** | `type(obj)` | Không |
+| **value** | tuỳ object | **Tuỳ nó là mutable hay immutable** |
+
+Cột thứ ba chính là toàn bộ nội dung bài này.
+
+```python
+nums = [1, 2, 3]
+print(id(nums))    # vd 140234... -> identity
+print(type(nums))  # <class 'list'>
+```
+
+### `is` và `==` - hai câu hỏi khác nhau
+
+Đây là chỗ nhầm nhiều nhất, nên nói rõ luôn:
+
+- `==` hỏi: **"giá trị có bằng nhau không?"** → gọi `__eq__`
+- `is` hỏi: **"có phải cùng một object không?"** → tương đương `id(a) == id(b)`
+
+```python
+class Foo:
+    def __init__(self, foo):
+        self.foo = foo
+
+a = Foo("x")
+b = a          # b bind tới CÙNG object với a
+c = Foo("x")   # object MỚI, value giống nhưng identity khác
+
+a is b   # True
+a == b   # True
+a is c   # False
+a == c   # False  <- vì Foo không override __eq__
+```
+
+Chú ý dòng cuối: `a == c` ra `False` dù hai object có cùng nội dung. Vì `Foo` không định nghĩa `__eq__`, Python fallback về so sánh identity. Muốn `==` so theo nội dung thì phải tự implement `__eq__` (hoặc dùng `@dataclass`).
+
+---
+
+## 3. Mutable vs Immutable
+
+Định nghĩa gọn:
+
+- **Mutable**: sửa được value **tại chỗ**, không cần cấp object mới → `id()` **giữ nguyên**.
+- **Immutable**: không sửa được tại chỗ. Muốn "đổi" thì Python tạo **object mới** rồi rebind cái tên sang đó → `id()` **đổi**.
+
+| Mutable | Immutable |
+| --- | --- |
+| `list` | `int`, `float`, `complex`, `bool` |
+| `dict` | `str` |
+| `set` | `tuple` |
+| `bytearray` | `frozenset`, `bytes` |
+| class tự định nghĩa (default) | `range`, `Decimal` |
+
+Immutable - rebind, không phải sửa:
+
+```python
+a = 1
+b = a
+print(id(a) == id(b))  # True -> cùng trỏ object 1
+
+a = 2                  # KHÔNG sửa object 1, mà bind a sang object 2
+print(a, b)            # 2 1  -> b không liên quan
+```
+
+Mutable - sửa tại chỗ, và **mọi tên đang trỏ tới nó đều thấy**:
+
+```python
+a = [1, 2, 3]
+b = a          # KHÔNG copy, chỉ là tên thứ hai cho cùng object
+a[2] = 99
+print(a)       # [1, 2, 99]
+print(b)       # [1, 2, 99]  <- b cũng đổi
+print(a is b)  # True
+```
+
+`b = a` **không phải copy**. Đây là nguồn gốc của hầu hết bug "sao nó tự đổi giá trị" trong Python.
+
+### tuple immutable, nhưng nội dung bên trong thì chưa chắc
+
+`tuple` không cho thêm/bớt/thay phần tử. Nhưng nếu một phần tử **là mutable**, thì nội dung phần tử đó vẫn sửa được:
+
+```python
+t  = (1, 2, [3, 4])
+t2 = (1, 2, [3, 4])
+
+t == t2   # True   (value giống)
+t is t2   # False  (hai object khác nhau)
+
+t[2].append(5)
+print(t)    # (1, 2, [3, 4, 5])   <- "immutable" mà vẫn đổi được nội dung
+print(t2)   # (1, 2, [3, 4])      <- list bên trong t2 là object khác
+```
+
+Cách hiểu đúng: tuple immutable ở chỗ **nó giữ nguyên tập reference** trỏ tới đâu. Nó không hứa gì về việc các object được trỏ tới có đổi hay không.
+
+---
+
+## 4. Hashable - và vì sao nó dính tới immutable
+
+Một object là **hashable** nếu `hash(obj)` trả về cùng một giá trị suốt lifetime của nó. Quan trọng vì **key của `dict`** và **element của `set`** bắt buộc phải hashable.
+
+```python
+hash("foo")       # OK
+hash((1, 2))      # OK
+hash([1, 2])      # TypeError: unhashable type: 'list'
+{[1, 2]}          # TypeError
+```
+
+Logic đằng sau: nếu value đổi được thì hash đổi theo, và `dict` sẽ không tìm lại được key cũ nữa. Nên `list` bị chặn.
+
+Cái tuple chứa list ở mục trên cũng vậy:
+
+```python
+hash((1, 2, [3, 4]))   # TypeError: unhashable type: 'list'
+```
+
+Tuple thì hashable, nhưng nó hash dựa trên các phần tử. Có một phần tử unhashable là toàn bộ tuple mất hashable.
+
+Nhưng quy tắc "immutable thì hashable" **không đúng theo chiều ngược lại**. Class tự định nghĩa là mutable, mà vẫn hashable by default:
+
+```python
+class Plain:
+    pass
+
+hash(Plain())   # OK -> hash theo id(), không theo nội dung attribute
+```
+
+### Cái bẫy: define `__eq__` là mất `__hash__`
+
+Chỗ này ít người biết. Khi bạn override `__eq__` mà không override `__hash__`, Python **tự set `__hash__ = None`**, object thành unhashable:
+
+```python
+class WithEq:
+    def __init__(self, v):
+        self.v = v
+    def __eq__(self, other):
+        return isinstance(other, WithEq) and self.v == other.v
+
+hash(WithEq(1))   # TypeError: unhashable type: 'WithEq'
+{WithEq(1)}       # TypeError
+```
+
+Lý do hợp lý: `a == b` mà `hash(a) != hash(b)` thì `dict`/`set` hỏng. Python thà chặn còn hơn để bạn sai âm thầm.
+
+Fix: implement `__hash__` cho khớp, hoặc dùng `@dataclass(frozen=True)` (nó tự sinh cả hai).
+
+```python
+class WithEq:
+    def __init__(self, v):
+        self.v = v
+    def __eq__(self, other):
+        return isinstance(other, WithEq) and self.v == other.v
+    def __hash__(self):
+        return hash(self.v)     # đúng nguyên tắc: a == b  =>  hash(a) == hash(b)
+```
+
+---
+
+## 5. Bốn cái bug kinh điển
+
+Toàn bộ mục này chỉ là một nguyên nhân: **gán không phải copy, và mutable sửa được tại chỗ.**
+
+### 5.1. Mutable default argument
+
+Cái ở đầu bài. Nguyên nhân: **default value được tạo MỘT LẦN duy nhất, lúc define function** - không phải mỗi lần gọi.
+
+```python
+def add_item(item, bucket=[]):
+    bucket.append(item)
+    return bucket
+
+add_item("a")
+add_item("b")
+print(add_item.__defaults__)   # (['a', 'b'],)  <- default bị sửa luôn rồi
+```
+
+Fix chuẩn - dùng `None` làm sentinel:
+
+```python
+def add_item(item, bucket=None):
+    if bucket is None:
+        bucket = []      # list mới cho mỗi lần gọi
+    bucket.append(item)
+    return bucket
+```
+
+Quy tắc: **đừng bao giờ để mutable làm default argument.** `list`, `dict`, `set` - tất cả.
+
+### 5.2. `[row] * 3` không tạo 3 list
+
+```python
+row = [0] * 3
+grid = [row] * 3       # 3 reference tới CÙNG một list
+grid[0][0] = 9
+print(grid)            # [[9, 0, 0], [9, 0, 0], [9, 0, 0]]
+```
+
+`[0] * 3` thì ổn, vì `int` immutable. `[row] * 3` thì toang, vì nhân một reference lên 3 lần.
+
+Fix - list comprehension, tạo object mới mỗi vòng:
+
+```python
+grid = [[0] * 3 for _ in range(3)]
+grid[0][0] = 9
+print(grid)            # [[9, 0, 0], [0, 0, 0], [0, 0, 0]]
+```
+
+### 5.3. Shallow copy không đủ sâu
+
+`copy.copy()`, `list(x)`, `x[:]` đều là **shallow copy**: tạo container mới, nhưng bên trong vẫn là reference cũ.
+
+```python
+import copy
+
+orig    = [[1, 2], [3, 4]]
+alias   = orig
+shallow = copy.copy(orig)        # hoặc orig[:] / list(orig)
+deep    = copy.deepcopy(orig)
+
+orig[0].append(99)
+
+print(orig)      # [[1, 2, 99], [3, 4]]
+print(alias)     # [[1, 2, 99], [3, 4]]   <- cùng object
+print(shallow)   # [[1, 2, 99], [3, 4]]   <- container khác, inner list DÙNG CHUNG
+print(deep)      # [[1, 2], [3, 4]]       <- độc lập thật
+```
+
+| | container mới? | inner object mới? |
+| --- | --- | --- |
+| `b = a` | ❌ | ❌ |
+| `copy.copy(a)` / `a[:]` | ✅ | ❌ |
+| `copy.deepcopy(a)` | ✅ | ✅ |
+
+Nested data mà chỉ shallow copy là bug chờ nổ. Nhưng `deepcopy` cũng đắt - chỉ dùng khi thật sự cần.
+
+### 5.4. Sửa mutable trong khi đang loop nó
+
+```python
+nums = [1, 2, 4, 3]
+for n in nums:
+    if n % 2 == 0:
+        nums.remove(n)
+print(nums)      # [1, 4, 3]  <- 4 là số chẵn mà vẫn sống sót
+```
+
+Xoá phần tử làm index dịch xuống, nhưng iterator vẫn tăng index như thường → nó **nhảy qua** một phần tử. Ở trên iterator chỉ soi tới `1`, `2`, `3` - `4` không bao giờ được kiểm tra.
+
+Fix: loop trên copy, hoặc build list mới:
+
+```python
+for n in nums[:]:            # loop trên copy
+    if n % 2 == 0:
+        nums.remove(n)
+
+nums = [n for n in nums if n % 2 != 0]   # cách này gọn hơn
+```
+
+---
+
+## 6. Truyền tham số vào function
+
+Python chỉ có **một** cơ chế truyền tham số, tên chính thức là **pass by object reference** (hay "call by sharing"): luôn truyền reference tới object, không bao giờ copy value.
+
+Cái làm bạn *cảm giác* như có 2 kiểu chính là mutable/immutable.
+
+### Tham số immutable
+
+```python
+def foo(bar):
+    bar += 1        # tạo int MỚI, rebind tên bar (local) sang đó
+    return bar
+
+x = 100
+y = foo(x)
+print(x, y)         # 100 101  -> x không đổi
+```
+
+`bar += 1` với `int` không sửa gì hết. Nó tạo object `101` rồi cho tên local `bar` trỏ sang. `x` bên ngoài vẫn trỏ object `100`.
+
+### Tham số mutable - sửa tại chỗ thì lộ ra ngoài
+
+```python
+def foo(bar):
+    bar.append(100)      # SỬA object
+
+a = [1, 10]
+foo(a)
+print(a)                 # [1, 10, 100]  -> đổi thật
+```
+
+### Nhưng gán lại thì không
+
+```python
+def reset(bar):
+    bar = [0, 0, 0]      # chỉ rebind tên local, KHÔNG đụng object gốc
+
+a = [1, 2, 3]
+reset(a)
+print(a)                 # [1, 2, 3]  -> không đổi
+```
+
+Đây là cặp ví dụ đáng nhớ nhất trong bài: **cùng một mutable object, `append` thì ảnh hưởng ra ngoài, `=` thì không.** Ranh giới không nằm ở mutable/immutable, mà ở **"sửa object" vs "rebind cái tên"**.
+
+Muốn `=` cũng ảnh hưởng ra ngoài thì phải sửa tại chỗ:
+
+```python
+def reset(bar):
+    bar[:] = [0, 0, 0]   # slice assignment -> sửa nội dung object gốc
+
+a = [1, 2, 3]
+reset(a)
+print(a)                 # [0, 0, 0]
+```
+
+### So với C++
+
+C++ tách bạch 3 cơ chế bằng syntax khai báo tham số:
+
+- `void f(int x)` - **pass by value**: nhận bản copy, sửa không ảnh hưởng bên ngoài
+- `void f(int& x)` - **pass by reference**: `x` là alias của biến gốc
+- `void f(int* x)` - **pass by pointer**: nhận address, sửa qua `*x = ...`
+
+| | C++ | Python |
+| --- | --- | --- |
+| Số cơ chế | 3, chọn bằng syntax | 1 (pass by object reference) |
+| Ai quyết định hành vi | Người **viết** function, ở signature | Object được truyền vào + function sửa tại chỗ hay rebind |
+| Sửa được `int` gốc? | Được (`int&` / `int*`) | Không |
+
+Python **không có** syntax nào tương đương `int&` hay `int*`. Muốn "trả kết quả ra ngoài" với immutable, cách idiomatic là `return`:
+
+```python
+def increment(x):
+    return x + 1
+
+a = 5
+a = increment(a)    # phải gán lại
+```
+
+Có thể bọc value vào list để mô phỏng pointer (`box = [5]`, rồi `box[0] += 1`), và nó chạy - nhưng đừng. Code khó đọc và không ai đọc Python theo kiểu đó.
+
+---
+
+## 7. `is` và cache - chỗ hầu hết bài viết giải thích sai
+
+Bạn chắc đã đọc ở đâu đó rằng Python cache số nguyên nhỏ `-5..256`, và intern "string ngắn dưới 20 ký tự không có dấu cách". Rồi ví dụ minh hoạ kiểu:
+
+```python
+a = 1000
+b = 1000
+print(a is b)          # bài viết nói: False
+
+s1 = "hello world"
+s2 = "hello world"
+print(s1 is s2)        # bài viết nói: False
+```
+
+Mình chạy thử trên Python 3.12. Lưu file thành `test.py` rồi `python3 test.py`:
+
+```
+True
+True
+```
+
+**Cả hai đều ra `True`.** Vì đang có **hai cơ chế khác nhau** bị gộp làm một.
+
+### Cơ chế 1: compile time - constant folding + dedup
+
+Trong **cùng một compilation unit** (một file, một function body), compiler gom các literal giống nhau về **một** constant duy nhất. Không liên quan gì tới "số nhỏ" hay "string ngắn":
+
+```python
+x = 1000
+y = 1000
+x is y                 # True
+
+s1 = "một câu tiếng Việt dài hơn hai mươi ký tự nhiều"
+s2 = "một câu tiếng Việt dài hơn hai mươi ký tự nhiều"
+s1 is s2               # True -> dài thế vẫn True
+```
+
+Đây chính là lý do cùng một đoạn code cho kết quả khác nhau giữa REPL và file script: **mỗi dòng bạn gõ trong REPL là một compilation unit riêng**, nên không dedup với nhau được.
+
+```
+>>> a = 1000
+>>> b = 1000
+>>> a is b
+False          # <- REPL: hai unit khác nhau
+```
+
+### Cơ chế 2: runtime - small int cache
+
+Cache số nguyên nhỏ là thật, và để thấy nó thì phải tạo giá trị **lúc runtime** cho compiler không fold được:
+
+```python
+def rt(s):
+    return int(s)      # giá trị sinh lúc chạy
+
+rt("-6")  is rt("-6")     # False
+rt("-5")  is rt("-5")     # True   <- biên dưới
+rt("256") is rt("256")    # True   <- biên trên
+rt("257") is rt("257")    # False
+```
+
+Khoảng chính xác: **-5 đến 256**, inclusive.
+
+### Còn "string ngắn được intern tự động" thì sao?
+
+Không đúng. String tạo lúc runtime **không** được auto-intern, bất kể ngắn hay không có dấu cách:
+
+```python
+def rt(parts):
+    return "".join(parts)
+
+rt(["hel", "lo"])          is "hello"      # False
+rt(["foo_", "bar"])        is "foo_bar"    # False
+```
+
+Muốn intern thì phải nói rõ:
+
+```python
+import sys
+a = "".join(["hello", " ", "world"])
+b = "".join(["hello", " ", "world"])
+a is b                                # False
+sys.intern(a) is sys.intern(b)        # True
+```
+
+### Chốt lại
+
+| Bạn thấy `is` ra `True` vì | Cơ chế |
+| --- | --- |
+| Hai literal giống nhau trong cùng một file/function | Constant dedup lúc **compile** |
+| Số nguyên trong `-5..256` tạo lúc chạy | **Small int cache** |
+| String tạo lúc chạy | Không có gì cả - phải `sys.intern()` |
+
+> Tất cả những cái trên là **implementation detail của CPython**, không phải spec của ngôn ngữ. Nó đổi giữa các version, và khác trên PyPy/Jython.
+
+Nên rule thực dụng chỉ có một dòng: **`is` chỉ dùng để so identity** - điển hình là `x is None`. So giá trị thì luôn `==`. CPython cũng nghĩ vậy, nó warn thẳng vào mặt bạn:
+
+```
+SyntaxWarning: "is" with 'int' literal. Did you mean "=="?
+```
+
+---
+
+## 8. Chọn mutable hay immutable
+
+| Cần gì | Chọn |
+| --- | --- |
+| Share và update liên tục một structure ở nhiều nơi | **mutable** (`list`, `dict`) - sửa tại chỗ, khỏi tạo object mới |
+| Data cố định, không muốn bị sửa "lỡ tay" | **immutable** (`tuple`, `str`, số) |
+| Làm key của `dict` / element của `set` | **immutable** (bắt buộc hashable) |
+| Config, constant, value object | **immutable** hoặc `@dataclass(frozen=True)` |
+
+Trade-off về cost:
+
+```python
+# immutable: mỗi lần "nối" là một object hoàn toàn mới
+t = (1, 2, 3)
+t = t + (4,)        # tạo tuple mới, copy cả 3 phần tử cũ
+
+# mutable: mở rộng tại chỗ
+lst = [1, 2, 3]
+lst.append(4)       # không tạo object mới
+```
+
+Build một collection trong loop thì dùng `list` rồi convert sang `tuple` ở cuối, đừng cộng `tuple` trong loop - cộng `n` lần là copy `O(n²)`.
+
+Ngược lại, immutable cho bạn thứ mutable không cho: đọc code mà **biết chắc** giá trị không bị ai đổi ngầm. Với data đi qua nhiều layer, cái đó đáng hơn vài byte memory.
+
+---
+
+## 9. Tóm tắt
+
+> Biến trong Python là **cái tên**, không phải cái hộp. `=` là **bind tên**, không phải copy value.
+
+Từ một câu đó suy ra được gần hết bài:
+
+- `b = a` không copy. Muốn copy thì `copy.copy()` (nông) hoặc `copy.deepcopy()` (sâu).
+- Mutable sửa được tại chỗ → mọi tên trỏ tới nó đều thấy. Immutable thì mọi "thay đổi" đều là object mới.
+- Trong function: **sửa object** thì lộ ra ngoài, **rebind tên** thì không. Ranh giới nằm ở đó, không phải ở signature.
+- Đừng để mutable làm default argument. Dùng `None` làm sentinel.
+- `hash` cần value cố định → mutable built-in không hashable. Override `__eq__` mà quên `__hash__` là mất hashable.
+- `is` so identity, `==` so value. Đừng bao giờ dùng `is` cho số và string - kết quả `True` bạn thấy thường là constant dedup lúc compile, không phải cái bạn nghĩ.
+
+---
+
+*Bài viết được tổng hợp và diễn giải lại dựa trên chủ đề mutable/immutable trong Python. Toàn bộ output trong bài được chạy và verify trên **CPython 3.12.3**.*
