@@ -1,0 +1,218 @@
+---
+title: "Decorator trong Python: cái @ đó thực chất là gì"
+summary: "Cái @ không phải ma thuật, nó chỉ là f = deco(f)."
+postLayout: column
+cover: '@/assets/python-decorator/cover.png'
+date: '2026-08-20'
+draft: false
+tags: [python]
+---
+
+Bạn gặp `@` khắp nơi trong code Python: `@app.get("/")`, `@lru_cache`, `@staticmethod`, `@pytest.fixture`. Phần lớn người dùng theo kiểu "thấy pattern thì copy", coi nó như cú pháp thần bí, không dám đụng vào. Thực ra hiểu được cái `@` này thì tự viết decorator không khó, và đọc code framework cũng hết thấy "ma thuật" nữa.
+
+> **Nếu bạn để AI coding agent viết code:** đây là chỗ dễ ra lỗi âm thầm nhất. AI có thể viết decorator mà quên `functools.wraps`, khiến hàm gốc mất tên, log/test report/OpenAPI docs hiện toàn `wrapper`. Hoặc viết wrapper thiếu `*args, **kwargs`, chạy ổn với hàm demo rồi bể ngay khi gặp handler có tham số khác. Review code AI sinh ra có `@...` ở trên, luôn hỏi ba câu: decorator chạy lúc nào, nó bọc hàm ra sao, có giữ metadata và truyền đủ tham số không?
+
+## 1. Hiểu lầm phổ biến: decorator là cú pháp đặc biệt
+
+Nah, không phải vậy. Sự thật gọn lại trong một câu:
+
+> **Decorator là một hàm nhận vào một hàm, trả về một hàm** - thường là bản "bọc thêm" chức năng cho hàm gốc. `@deco` đặt trên `def f` chỉ là viết tắt của `f = deco(f)`.
+
+Hết. Không có gì huyền bí cả.
+
+## 2. Tự viết một cái để thấy rõ
+
+Ví dụ decorator tự động **retry** khi hàm bị lỗi - pattern rất hay gặp khi gọi API hoặc thao tác không ổn định (network, DB, third-party service):
+
+```python
+import time
+
+def retry(max_attempts=3, delay=1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)      # gọi hàm gốc
+                except ConnectionError as e:
+                    print(f"{func.__name__} failed (attempt {attempt}): {e}")
+                    if attempt == max_attempts:
+                        raise
+                    time.sleep(delay)
+        return wrapper                                 # trả về bản bọc
+    return decorator
+
+@retry(max_attempts=3, delay=2)
+def fetch_order_status(order_id):
+    # giả sử hàm này đôi khi raise ConnectionError
+    return call_external_api(order_id)
+
+# Dòng @ ở trên tương đương:
+# fetch_order_status = retry(max_attempts=3, delay=2)(fetch_order_status)
+```
+
+Gọi `fetch_order_status(123)` thực chất là gọi `wrapper`: nó thử gọi hàm gốc, nếu bắt được `ConnectionError` thì log lại rồi chờ `delay` giây, thử lại tối đa `max_attempts` lần trước khi raise thật. `*args, **kwargs` trong `wrapper` cho phép nhận **mọi tham số**, rồi chuyển thẳng cho hàm gốc - nhờ vậy decorator này dùng được cho bất kỳ hàm nào, không cần biết trước signature.
+
+Đây cũng là ví dụ decorator **có tham số** (`max_attempts`, `delay`) - để nhận được config, nó phải lồng ba tầng hàm. Phần 5 sẽ mổ kỹ chỗ này.
+
+## 3. Flow thực tế: `@pytest.fixture` chạy lúc nào
+
+Điểm dễ hiểu sai nhất: decorator **chạy ngay lúc Python import module / định nghĩa hàm**, không phải đợi tới lúc dùng mới chạy.
+
+```python
+import pytest
+
+@pytest.fixture
+def db_session():
+    session = create_session()
+    yield session
+    session.close()
+
+def test_create_order(db_session):
+    db_session.add(Order(id=1))
+    assert db_session.query(Order).count() == 1
+```
+
+Python hiểu dòng `@pytest.fixture` gần như thế này:
+
+```python
+db_session = pytest.fixture(db_session)
+```
+
+Flow đầy đủ khi chạy `pytest`:
+
+- Pytest ở **collection phase**: import file test, toàn bộ code top-level chạy.
+- `pytest.fixture(db_session)` chạy **ngay tại thời điểm import** đó.
+- Nó **không gọi** hàm `db_session` - chỉ thay cái tên `db_session` trong module bằng một object có "dấu" mark đây là fixture (từ pytest 8.4 là `FixtureFunctionDefinition`, mang theo tên + scope + params).
+- Pytest quét module, thấy object có dấu này thì ghi vào **fixture table**.
+- Đến khi chạy `test_create_order`, pytest đọc tên tham số `db_session`, tra fixture table, **lúc này mới thực sự gọi** hàm gốc để tạo session, chạy tới `yield` rồi đưa session vào test.
+- Test xong, pytest chạy tiếp phần sau `yield` để `session.close()`.
+
+Nói cách khác, `@pytest.fixture` không phải "hàm tạo data chạy trước mỗi test". Nó là bước **đăng ký luật chơi trước** ở lúc import; việc tạo/dọn data chỉ xảy ra khi có test thật sự cần tới fixture đó.
+
+Ví dụ này cũng cho thấy một biến thể đáng chú ý: decorator **không nhất thiết phải trả về hàm**. `@pytest.fixture` trả về một object hoàn toàn khác - "hàm nhận hàm, trả về hàm" là quy ước phổ biến nhất, không phải luật. Điều bắt buộc duy nhất là `@deco` trên `def f` sẽ gán `f = deco(f)`, còn `deco` trả về cái gì thì tuỳ nó.
+
+## 4. Bẫy hay gặp: wrapper "nuốt" mất metadata hàm gốc
+
+`@pytest.fixture` ở phần 3 không gặp vấn đề này, vì bên trong nó pytest có gọi `functools.update_wrapper` để copy metadata sang object mới. Còn khi bạn tự viết decorator kiểu "bọc hàm" như `retry` ở phần 2, mặc định là mất metadata:
+
+```python
+@retry(max_attempts=3, delay=2)
+def fetch_order_status(order_id):
+    """Lấy trạng thái đơn hàng từ service ngoài."""
+    return call_external_api(order_id)
+
+print(fetch_order_status.__name__)   # 'wrapper'  <- không còn là 'fetch_order_status'
+print(fetch_order_status.__doc__)    # None       <- docstring bay mất
+```
+
+Lý do: `fetch_order_status` bây giờ **đúng nghĩa là** hàm `wrapper`, còn hàm gốc chỉ còn sống trong biến `func` của closure. Log bên trong `retry` (`f"{func.__name__} failed..."`) vẫn in đúng tên vì nó dùng `func`, nhưng mọi thứ nhìn từ **bên ngoài** vào - traceback, log ở tầng cao hơn, `inspect.signature` đều chỉ thấy `wrapper`. Tệ hơn: nếu decorate 5 hàm rồi đưa chúng cho framework nào đó đăng ký theo `__name__` (route, fixture, task queue), bạn sẽ có 5 cái tên `wrapper` đè lên nhau.
+
+Fix bằng `functools.wraps` - đúng một dòng:
+
+```python
+import time
+from functools import wraps
+
+def retry(max_attempts=3, delay=1):
+    def decorator(func):
+        @wraps(func)                                   # copy __name__, __doc__, __module__... từ func
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except ConnectionError as e:
+                    print(f"{func.__name__} failed (attempt {attempt}): {e}")
+                    if attempt == max_attempts:
+                        raise
+                    time.sleep(delay)
+        return wrapper
+    return decorator
+```
+
+Giờ `fetch_order_status.__name__` ra `'fetch_order_status'`, docstring còn nguyên, và `fetch_order_status.__wrapped__` cho bạn cầm lại hàm gốc khi cần test riêng phần logic không có retry.
+
+`@wraps` nên là thói quen mặc định mỗi lần viết decorator, không phải thứ nhớ ra sau khi debug xong mới thêm vào.
+
+## 5. Decorator có tham số: vì sao phải ba tầng?
+
+`@` chỉ truyền cho decorator đúng một thứ: **hàm ngay bên dưới nó**. Vậy `max_attempts=3, delay=2` đi vào bằng đường nào?
+
+Chìa khoá: thứ viết sau `@` là **một biểu thức**. Python tính giá trị biểu thức đó trước, rồi mới gọi kết quả với hàm.
+
+Dạng không tham số - hai tầng:
+
+```python
+def retry(func):                          # nhận thẳng hàm
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        ...
+    return wrapper
+
+@retry                                    # fetch_order_status = retry(fetch_order_status)
+def fetch_order_status(order_id):
+    ...
+```
+
+Dạng có tham số - thêm một tầng ngoài, chỉ để giữ config:
+
+```python
+@retry(max_attempts=3, delay=2)
+def fetch_order_status(order_id):
+    ...
+
+# Python làm hai bước:
+deco = retry(max_attempts=3, delay=2)          # 1. gọi retry NGAY -> nhận về hàm `decorator`
+fetch_order_status = deco(fetch_order_status)  # 2. `@` gọi kết quả đó với hàm gốc
+```
+
+Nên nói cho đúng: `retry` **không phải** decorator. Nó là hàm sản xuất decorator (*decorator factory*). Decorator thật là `decorator` bên trong - chính là thứ mà dòng `return decorator` trả ra.
+
+| Tầng | Tên | Nhận | Trả về | Chạy khi nào |
+|---|---|---|---|---|
+| 1 | `retry` | config (`max_attempts`, `delay`) | `decorator` | lúc gặp dòng `@`, tức lúc import |
+| 2 | `decorator` | hàm gốc (`func`) | `wrapper` | ngay sau tầng 1, cũng lúc import |
+| 3 | `wrapper` | `*args, **kwargs` của lời gọi | kết quả hàm gốc | **mỗi lần** gọi hàm |
+
+Thứ giữ cho mô hình này chạy được là **closure**: `retry` return rồi kết thúc, nhưng `max_attempts` và `delay` không mất - `wrapper` vẫn giữ tham chiếu tới chúng. `func` cũng vậy. Nhờ đó tới lúc gọi hàm (rất lâu sau import), `wrapper` vẫn biết đủ `func`, `max_attempts`, `delay`.
+
+Mỗi lần decorate tạo một closure riêng, nên các cấu hình không đụng nhau:
+
+```python
+@retry(max_attempts=5, delay=1)
+def fetch_order_status(order_id): ...      # closure riêng: max_attempts=5
+
+@retry(max_attempts=2, delay=10)
+def push_invoice(invoice_id): ...          # closure riêng: max_attempts=2
+```
+
+### Cho phép dùng cả hai kiểu
+
+Muốn cả `@retry` lẫn `@retry(max_attempts=5)` đều chạy, dùng pattern `func=None` + tham số keyword-only:
+
+```python
+def retry(func=None, *, max_attempts=3, delay=1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            ...
+        return wrapper
+
+    if func is not None:        # gọi kiểu @retry     -> func chính là hàm gốc
+        return decorator(func)
+    return decorator            # gọi kiểu @retry(max_attempts=5)
+```
+
+Dấu `*` bắt buộc `max_attempts`/`delay` phải truyền bằng keyword, nên không thể lẫn vào vị trí của `func`. Đây đúng là cách `pytest.fixture` làm để hỗ trợ cả `@pytest.fixture` và `@pytest.fixture(scope="session")`.
+
+## 6. Vì sao đáng học: decorator có mặt khắp Python
+
+Lý do decorator phổ biến: nó tách "việc phụ" ra khỏi "logic chính" rất gọn. `fetch_order_status` vẫn chỉ có một dòng gọi API - chuyện thử lại, đếm lượt, chờ giữa các lần nằm hết ở `retry`, và dùng lại được cho mọi hàm khác.
+
+- **Retry** - như ví dụ xuyên suốt bài, tự thử lại khi gặp lỗi tạm thời.
+- **Đo thời gian / logging**: bọc thêm log trước/sau khi hàm chạy, không đụng vào logic bên trong.
+- **Cache**: `@lru_cache` nhớ kết quả theo tham số đầu vào.
+- **Auth / phân quyền**: `@require_login` chặn request trước khi vào tới handler.
+- **Đăng ký route**: `@app.get("/")` của FastAPI/Flask ghi hàm vào bảng route.
+- **Đăng ký fixture**: `@pytest.fixture` như phần 3, ghi hàm vào bảng fixture để pytest inject vào test sau.
+
+Hết rùi.
