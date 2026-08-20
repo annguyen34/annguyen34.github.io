@@ -1,6 +1,6 @@
 ---
 title: "Tối ưu Pytest suite - nhanh hơn 8.5 lần mà không viết lại một test nào"
-summary: "Suite chạy 20 phút, ngày xui vượt cả tiếng. Sau vài thay đổi nhỏ nhưng đúng chỗ, xuống còn ~2 phút. Không refactor toàn bộ, không viết lại test."
+summary: "Suite chạy 20 phút, ngày xui vượt cả tiếng."
 postLayout: column
 cover: '@/assets/pytest-optimize/cover.png'
 date: '2026-08-20'
@@ -14,7 +14,6 @@ Bạn có nhận ra là mình rất hay gặp cảnh này không:
 - Mở Jira/Slack làm việc khác vì đợi lâu quá
 - 25 phút sau pipeline đỏ, vì một cái flaky test
 - Retry. Đợi thêm 25 phút.
-- Tới lúc xanh thì… quên mất mình đang sửa cái gì 🤡
 
 ---
 
@@ -37,9 +36,9 @@ Vấn đề kỹ thuật lúc này đã biến thành vấn đề productivity: 
 
 ## Điểm khởi đầu
 
-Giống hầu hết project khác: giai đoạn đầu ưu tiên coverage và tốc độ ship feature. Không ai nghĩ tới sức khoẻ lâu dài của test suite. Giải pháp nhanh dần dần thành technical debt.
+Giống hầu hết project khác: giai đoạn đầu ưu tiên coverage và tốc độ ship feature. Không ai nghĩ tới long term health của test suite. Solution nhanh dần dần thành technical debt.
 
-Lúc bắt tay vào, các suite trung bình 20-25 phút, ngày xui vượt cả tiếng - đủ để chạm giới hạn 2 tiếng của GitLab CI.
+Lúc bắt tay vào, các suite trung bình 20-25 phút, ngày xui vượt cả tiếng - đủ để chạm limit 2 tiếng của GitLab CI.
 
 Mục tiêu ban đầu nghe đơn giản mà khá tham vọng:
 
@@ -166,13 +165,13 @@ Nhân lúc refactor thì audit luôn nội dung test - phần này phối hợp 
 - Bỏ scenario đã lỗi thời (có những test đang verify một business rule đã đổi từ 2 năm trước)
 - Tách test kiểu "làm tất cả mọi thứ trong một hàm" thành nhiều test nhỏ
 
-Cái thứ hai đáng giá hơn tưởng tượng. Một test 200 dòng làm 8 việc, khi fail thì bạn chỉ biết "nó fail", phải đọc log dò xem fail ở việc thứ mấy. Tách ra thành 8 test thì tên test đã nói cho bạn biết chỗ vỡ.
+Cái thứ hai ok hơn tưởng tượng. Một test 200 dòng làm 8 việc, khi fail thì bạn chỉ biết "nó fail", phải đọc log dò xem fail ở việc thứ mấy. Tách ra thành 8 test thì tên test đã nói cho bạn biết nào làm broken.
 
 ---
 
 ## Bước 3: Từ `sleep()` sang smart waiting
 
-`sleep()` hardcode là nguồn chậm ẩn lớn nhất. Bỏ một `sleep(30)` thôi nhiều khi biến một test vài phút thành test vài giây.
+`sleep()` hardcode dễ gây slow nhất. Bỏ một `sleep(30)` thôi nhiều khi biến một test vài phút thành test vài giây.
 
 Nhưng xoá wait một cách mù quáng thì test fail ngay, nhất là khi gọi service bên ngoài. Vấn đề của `sleep(30)` không phải là "chờ", mà là **hardcode wait**: hệ thống sẵn sàng sau 2 giây thì bạn vẫn ngồi đợi 28 giây nữa, còn ngày nào nó cần 35 giây thì bạn fail.
 
@@ -211,12 +210,12 @@ def wait_order_status(order_id: str, expected: str, timeout: int = 30):
     return wait_until(check, timeout=timeout)
 ```
 
-Chi tiết nhỏ nhưng quan trọng: chỉ retry trên `AssertionError`. Nếu API trả `404` hay `500` thì để nó raise và **fail ngay**, đừng retry. Vì retry một lỗi không bao giờ tự khỏi thì bạn chỉ đang trả thêm 30 giây để nhận cùng một kết quả fail. Đây chính là "error handling pattern gây chờ dư thừa" ở danh sách vấn đề ban đầu.
+Chi tiết nhỏ nhưng quan trọng: chỉ retry trên `AssertionError`. Nếu API trả `404` hay `500` thì để nó raise và **fail ngay**, đừng retry. Vì retry một lỗi không bao giờ resolve thì bạn chỉ đang trả thêm 30 giây để nhận cùng một kết quả fail. Đây chính là "error handling pattern gây chờ dư thừa" ở danh sách vấn đề ban đầu.
 
 Được gì:
 
 - **Chờ đúng bằng thời gian cần chờ**, không hơn
-- Fail nhanh khi gặp lỗi thật, không đợi hết timeout
+- Fail fast khi gặp lỗi thật, không đợi hết timeout
 - Error message nói rõ nó đang chờ gì và thực tế nhận được gì - khỏi phải đoán
 
 ---
@@ -296,6 +295,6 @@ Presetup không trực tiếp làm test nhanh hơn nhiều, nhưng nó xử lý 
 | Ngày xui | Vượt 1 tiếng, chạm giới hạn 2h của GitLab CI | Vẫn ~2 phút |
 | Tính predictable | Retry + hardcode wait + timeout dây chuyền | Ổn định |
 
-Giảm khoảng **88%**, tương đương nhanh hơn **8.5 lần**.
+Giảm khoảng **88%**, tương đương nhanh hơn **8.5 lần**. (xạo đó)
 
-Nhưng con số không phải phần giá trị nhất. Phần giá trị nhất là **kết quả chạy trở nên predictable**, và khi fail thì tìm nguyên nhân nhanh hơn rõ rệt.
+Nhưng con số không phải phần giá trị nhất. Phần giá trị nhất là **kết quả chạy trở nên predictable**, và khi fail thì tìm root cause nhanh hơn rõ rệt.
