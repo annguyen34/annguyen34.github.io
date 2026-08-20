@@ -1,78 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#12141c"/>
-      <stop offset="55%" stop-color="#171a24"/>
-      <stop offset="100%" stop-color="#0e1016"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#ff8a5b"/>
-      <stop offset="100%" stop-color="#ff5f56"/>
-    </linearGradient>
-    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M40 0 L0 0 0 40" fill="none" stroke="#ffffff" stroke-opacity="0.028" stroke-width="1"/>
-    </pattern>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#efe9dd"/><path d="M 0 520 L 1200 520 L 1200 630 L 0 630 Z" fill="#e4dbc9"/><path d="M 0 520 L 1200 520" stroke="#cdc2ab" stroke-width="4"/>
+  <g transform="translate(120,84) scale(0.86)">
+  <rect x="0" y="0" width="252" height="62" rx="14" fill="#1f2937" stroke="#0f172380" stroke-width="4"/>
+  <circle cx="34" cy="31" r="13" fill="#ff7a4d"/>
+  <text x="60" y="43" font-family="DejaVu Sans" font-size="27" font-weight="bold" fill="#ffa176">claude code</text>
+</g>
 
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <rect width="1200" height="630" fill="url(#grid)"/>
-  <circle cx="1010" cy="120" r="300" fill="#ff7a4d" opacity="0.07"/>
+  <!-- file card .env bi chan -->
+  <rect x="708" y="130" width="442" height="272" rx="12" fill="#00000018"/>
+  <rect x="700" y="118" width="442" height="272" rx="12" fill="#fbfaf6" stroke="#2f4a1c" stroke-width="5"/>
+  <path d="M 700 170 L 1142 170" stroke="#2f4a1c" stroke-width="4.5"/>
+  <circle cx="728" cy="145" r="7" fill="#c8433a"/>
+  <circle cx="750" cy="145" r="7" fill="#e0a92e"/>
+  <circle cx="772" cy="145" r="7" fill="#2f8f4e"/>
+  <text x="921.0" y="153" font-family="DejaVu Sans Mono" font-size="24"
+        font-weight="bold" fill="#4a5566" text-anchor="middle">.env</text>
 
-  <!-- left column -->
-  <g font-family="DejaVu Sans">
-    <rect x="80" y="86" width="196" height="34" rx="17" fill="#ff7a4d" fill-opacity="0.14" stroke="#ff8a5b" stroke-opacity="0.45"/>
-    <text x="102" y="109" font-size="17" font-weight="bold" fill="#ffa176" letter-spacing="2.2">CLAUDE CODE</text>
+  <rect x="734" y="204" width="250" height="15" rx="7" fill="#cfd5dc"/>
+  <rect x="734" y="238" width="330" height="15" rx="7" fill="#cfd5dc"/>
+  <rect x="734" y="272" width="196" height="15" rx="7" fill="#cfd5dc"/>
+  <rect x="734" y="306" width="286" height="15" rx="7" fill="#cfd5dc"/>
 
-    <text x="78" y="228" font-size="112" font-weight="bold" fill="#f2f4f8" letter-spacing="-2">HOOKS</text>
-    <rect x="82" y="250" width="196" height="7" rx="3.5" fill="url(#accent)"/>
-
-    <text x="80" y="322" font-size="27" fill="#c8cddb">Configuration, không phải instruction.</text>
-    <text x="80" y="364" font-size="27" fill="#c8cddb">Harness chạy, không phải model.</text>
-
-    <g font-size="20" fill="#7e8699">
-      <text x="80" y="438">“Mỗi lần X xảy ra thì Y phải xảy ra”</text>
-      <text x="80" y="472" fill="#5d6478">— viết vào CLAUDE.md chỉ là cầu nguyện thôi</text>
-    </g>
-
-    <g font-family="DejaVu Sans Mono" font-size="16">
-      <rect x="80" y="516" width="132" height="32" rx="6" fill="#ffffff" fill-opacity="0.05"/>
-      <text x="96" y="537" fill="#8b93a7">PreToolUse</text>
-      <rect x="222" y="516" width="140" height="32" rx="6" fill="#ffffff" fill-opacity="0.05"/>
-      <text x="238" y="537" fill="#8b93a7">PostToolUse</text>
-      <rect x="372" y="516" width="66" height="32" rx="6" fill="#ffffff" fill-opacity="0.05"/>
-      <text x="388" y="537" fill="#8b93a7">Stop</text>
-    </g>
+  <!-- dau X do de len file -->
+  <g stroke="#c8433a" stroke-width="17" stroke-linecap="round" opacity="0.9">
+    <path d="M 762 200 L 1080 324"/>
+    <path d="M 1080 200 L 762 324"/>
   </g>
 
-  <!-- terminal card -->
+  <!-- pill: exit code 2 -->
+  <rect x="772" y="414" width="298" height="52" rx="26"
+        fill="#c8433a" stroke="#2f4a1c" stroke-width="4.5"/>
+  <text x="921.0" y="449" font-family="DejaVu Sans Mono" font-size="25"
+        font-weight="bold" fill="#fbfaf6" text-anchor="middle">blocked · exit 2</text>
+
+  <!-- pepe gatekeeper: tay gio bien STOP -->
+  <g transform="translate(296,386) scale(1.42)" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M -74 44 C -124 74, -146 134, -150 210 L 150 210 C 146 134, 124 74, 74 44 Z"
+        fill="#2f6fb5" stroke="#22364d" stroke-width="5"/>
+  <path d="M -118 -10 C -118 -62, -70 -88, 0 -88 C 70 -88, 118 -62, 118 -10
+           C 118 26, 96 52, 56 64 C 36 70, -36 70, -56 64 C -96 52, -118 26, -118 -10 Z"
+        fill="#74a244" stroke="#2f4a1c" stroke-width="5.5"/>
+  <circle cx="-54" cy="-44" r="34" fill="#fbfaf6" stroke="#2f4a1c" stroke-width="5"/>
+  <circle cx="54"  cy="-44" r="34" fill="#fbfaf6" stroke="#2f4a1c" stroke-width="5"/>
+  <circle cx="-47" cy="-30" r="14" fill="#1b1b1b"/>
+  <circle cx="47"  cy="-30" r="14" fill="#1b1b1b"/>
+  <path d="M -88 -44 A 34 34 0 0 1 -20 -44 C -36 -40, -72 -40, -88 -44 Z" fill="#66913a" stroke="#2f4a1c" stroke-width="4.5"/><path d="M 20 -44 A 34 34 0 0 1 88 -44 C 72 -40, 36 -40, 20 -44 Z" fill="#66913a" stroke="#2f4a1c" stroke-width="4.5"/>
+  
+  <ellipse cx="-16" cy="4" rx="4.5" ry="3.2" fill="#2f4a1c"/>
+  <ellipse cx="16"  cy="4" rx="4.5" ry="3.2" fill="#2f4a1c"/>
+  <path d="M -106 22 C -66 6, 66 6, 106 22 C 102 36, 56 48, 0 48 C -56 48, -102 36, -106 22 Z" fill="#a1786c" stroke="#2f4a1c" stroke-width="5"/><path d="M -106 22 C -60 34, 60 34, 106 22" fill="none" stroke="#2f4a1c" stroke-width="4.5"/>
+</g>
+  <path d="M 462 512 C 512 496, 556 452, 574 424" fill="none" stroke="#22364d" stroke-width="32.5" stroke-linecap="round"/><path d="M 462 512 C 512 496, 556 452, 574 424" fill="none" stroke="#2f6fb5" stroke-width="22.5" stroke-linecap="round"/><circle cx="582" cy="414" r="34" fill="#74a244" stroke="#2f4a1c" stroke-width="4.5"/>
   <g>
-    <rect x="668" y="150" width="470" height="330" rx="14" fill="#000000" opacity="0.35"/>
-    <rect x="660" y="142" width="470" height="330" rx="14" fill="#0b0d13" stroke="#2b3040" stroke-width="1.5"/>
-    <rect x="660" y="142" width="470" height="42" rx="14" fill="#181c27"/>
-    <rect x="660" y="170" width="470" height="14" fill="#181c27"/>
-    <circle cx="686" cy="163" r="6.5" fill="#ff5f56"/>
-    <circle cx="708" cy="163" r="6.5" fill="#ffbd2e"/>
-    <circle cx="730" cy="163" r="6.5" fill="#27c93f"/>
-    <text x="895" y="168" font-family="DejaVu Sans Mono" font-size="14" fill="#6b7385" text-anchor="middle">settings.json</text>
-
-    <g font-family="DejaVu Sans Mono" font-size="17">
-      <text x="692" y="228" fill="#4f5768">$</text>
-      <text x="714" y="228" fill="#c9cfdd">claude</text>
-
-      <text x="692" y="272" fill="#ff8a5b">●</text>
-      <text x="716" y="272" fill="#e6eaf3">Edit(</text>
-      <text x="762" y="272" fill="#ffbd2e">.env</text>
-      <text x="800" y="272" fill="#e6eaf3">)</text>
-
-      <text x="716" y="306" fill="#4f5768">⎿</text>
-      <text x="746" y="306" fill="#8b93a7">PreToolUse hook</text>
-
-      <rect x="740" y="326" width="330" height="34" rx="6" fill="#ff5f56" fill-opacity="0.12"/>
-      <text x="758" y="349" fill="#ff6b60">✗ blocked</text>
-      <text x="866" y="349" fill="#7a8195">exit code 2</text>
-
-      <text x="746" y="392" fill="#5d6478">File nhạy cảm, không</text>
-      <text x="746" y="416" fill="#5d6478">được đụng vào.</text>
-    </g>
+    <polygon points="661.3,395.7 627.7,429.3 580.3,429.3 546.7,395.7 546.7,348.3 580.3,314.7 627.7,314.7 661.3,348.3" fill="#c8433a" stroke="#fbfaf6" stroke-width="7"/>
+    <polygon points="661.3,395.7 627.7,429.3 580.3,429.3 546.7,395.7 546.7,348.3 580.3,314.7 627.7,314.7 661.3,348.3" fill="none" stroke="#2f4a1c" stroke-width="4.5"/>
+    <text x="604" y="384" font-family="DejaVu Sans" font-size="30" font-weight="bold"
+          fill="#fbfaf6" text-anchor="middle">STOP</text>
   </g>
+
+  <!-- chip PreToolUse canh pepe -->
+  <rect x="120" y="172" width="216" height="48" rx="12" fill="#1f2937" stroke="#0f172380" stroke-width="4"/>
+  <text x="228" y="205" font-family="DejaVu Sans Mono" font-size="22" fill="#ffa176" text-anchor="middle">PreToolUse</text>
 </svg>
