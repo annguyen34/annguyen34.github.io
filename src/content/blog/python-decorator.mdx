@@ -10,7 +10,7 @@ tags: [python]
 
 Bạn gặp `@` khắp nơi trong code Python: `@app.get("/")`, `@lru_cache`, `@staticmethod`, `@pytest.fixture`. Phần lớn người dùng theo kiểu "thấy pattern thì copy", coi nó như cú pháp thần bí, không dám đụng vào. Thực ra hiểu được cái `@` này thì tự viết decorator không khó, và đọc code framework cũng hết thấy "ma thuật" nữa.
 
-> **Nếu bạn để AI coding agent viết code:** đây là chỗ dễ ra lỗi âm thầm nhất. AI có thể viết decorator mà quên `functools.wraps`, khiến hàm gốc mất tên, log/test report/OpenAPI docs hiện toàn `wrapper`. Hoặc viết wrapper thiếu `*args, **kwargs`, chạy ổn với hàm demo rồi bể ngay khi gặp handler có tham số khác. Review code AI sinh ra có `@...` ở trên, luôn hỏi ba câu: decorator chạy lúc nào, nó bọc hàm ra sao, có giữ metadata và truyền đủ tham số không?
+> **Nếu bạn để AI coding agent viết code:** đây là chỗ dễ ra lỗi âm thầm nhất. AI có thể viết decorator mà quên `functools.wraps`, khiến hàm gốc mất tên, log/test report/OpenAPI docs hiện toàn `wrapper`. Hoặc viết wrapper thiếu `*args, **kwargs`, chạy ổn với hàm demo rồi break ngay khi gặp handler có tham số khác. Review code AI sinh ra có `@...` ở trên, luôn hỏi ba câu: decorator chạy lúc nào, nó bọc hàm ra sao, có giữ metadata và truyền đủ tham số không?
 
 ## 1. Hiểu lầm phổ biến: decorator là cú pháp đặc biệt
 
