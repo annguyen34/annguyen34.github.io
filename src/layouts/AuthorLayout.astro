@@ -55,7 +55,7 @@ const authorPosts = await getCollection(
     <div
       class="items-start space-y-2 xl:grid xl:grid-cols-3 xl:gap-x-8 xl:space-y-0"
     >
-      <div class="flex flex-col items-center space-x-2 pt-8">
+      <div class="flex flex-col items-center space-y-1 pt-8">
         {
           avatar && (
             <Image
@@ -71,6 +71,13 @@ const authorPosts = await getCollection(
           {name}
         </h2>
         <div class="text-gray-500 dark:text-gray-400">{occupation}</div>
+        {
+          shortBio && (
+            <div class="text-center text-gray-500 dark:text-gray-400">
+              {shortBio}
+            </div>
+          )
+        }
         <div class="text-gray-500 dark:text-gray-400">{company}</div>
         <div class="flex space-x-3 pt-6">
           {email && <SocialIcon kind="mail" href={`mailto:${email}`} />}
