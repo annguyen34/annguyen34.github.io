@@ -1,0 +1,68 @@
+---
+title: "Fluent Python: học lại Python một cách nghiêm túc"
+summary: "Tất cả tại cái điện thoại nên tôi học lại Python"
+postLayout: column
+cover: '@/assets/fluent-python-index/cover.png'
+date: '2026-10-11'
+draft: true
+tags: [python]
+---
+
+Hí ộ, tại sao lại có cái của nợ này nhỉ?
+
+Chuyện là công việc dạo này xài AI quá nhiều + reels swipper full time nên mình rất nhớ cảm giác tìm hiểu cái gì đó nghiêm túc (no AI) về ngôn ngữ lập trình. Lần cuối chắc là thời học về con trỏ + làm project về bitmap.
+
+Ye, nên mình quyết định sẽ tìm hiểu cái gì đó nghiêm túc và **không sử dụng AI**, mapping lại kiến thức thời đại học cho dễ hiểu =))
+
+Công việc hiện tại mình hầu như là sử dụng Python full time nên mình sẽ chọn cuốn **Fluent Python, 2nd edition (O'Reilly 2022)** để bắt đầu. Thanks anh Minh ở 105Enterprise đã gợi ý em cuốn sách này.
+
+Sách có **24 chương chia thành 5 phần**, tập trung vào việc dùng Python "đúng chất Python" (Pythonic) cho Python 3.10 trở lên.
+
+
+---
+
+## Phần I — Data structures
+
+1. **Mô hình dữ liệu của Python**: Giải thích các special method (dunder) như `__len__`, `__getitem__`, `__repr__`.
+   → [Chapter 1: The Python Data Model](/blog/fluent-python-ch01-data-model)
+2. **Dãy các sequence**: So sánh `list`, `tuple`, `array`, `deque`, `memoryview`. Nói về list comprehension, generator expression, unpacking, slicing, pattern matching với sequence, `sort`/`sorted`.
+3. **Dictionary và set**: Cách `dict` hoạt động (hash table), các biến thể (`defaultdict`, `OrderedDict`, `ChainMap`), `__missing__`, mapping bất biến, pattern matching với mapping, và các thao tác trên set.
+4. **Unicode: văn bản và bytes**: Phân biệt `str` với `bytes`, encoding/decoding, xử lý lỗi, chuẩn hóa Unicode, so sánh và sắp xếp chuỗi.
+5. **Data class builders**: So sánh `collections.namedtuple`, `typing.NamedTuple` và `@dataclass`, cùng các tùy chọn như `field`, `frozen`, `__post_init__`.
+6. **Tham chiếu đối tượng, tính khả biến và thu hồi bộ nhớ**: Variable là nhãn gắn vào đối tượng, khác biệt giữa `==` và `is`, shallow copy so với deep copy, truyền tham số, `del` và garbage collection, weak reference.
+
+## Phần II — Functions as objects
+
+1. **Hàm là first-class object**: Hàm bậc cao, callable object, các dạng tham số (positional-only, keyword-only), module `operator`, `functools.partial`.
+2. **Type hints trong hàm**: Gradual typing, `Optional`, `Union`, generic collection, `Callable`, `TypeVar`, `Protocol`, các công cụ như Mypy.
+3. **Decorator và closure**: Closure, `nonlocal`, viết decorator, `functools.wraps`, `functools.cache`, decorator có tham số.
+4. **Design pattern với hàm first-class**: Viết lại các pattern như Strategy, Command bằng hàm thay vì lớp, thể hiện sự đơn giản hóa so với OOP kiểu cổ điển.
+
+## Phần III — Class và protocol
+
+1. **Một đối tượng Pythonic**: Xây dựng class đầy đủ gồm `__repr__`, `__str__`, `__format__`, `__hash__`, `__bytes__`, thuộc tính read-only, `__slots__`, cách dùng `@classmethod`/`@staticmethod`.
+2. **Special method cho sequence**: Tự cài đặt một sequence hoàn chỉnh (kiểu `Vector`), hỗ trợ slicing, hashing, định dạng, qua duck typing.
+3. **Interface, protocol và ABC**: Bốn kiểu typing (duck, goose, static, static duck), ABC, `collections.abc`, `typing.Protocol`.
+4. **Kế thừa: lợi và hại**: Cẩn trọng khi kế thừa built-in, đa kế thừa, MRO, mixin, và lời khuyên ưu tiên composition.
+5. **Thêm về type hints**: Overload, `TypedDict`, ép kiểu (`cast`), generic class, variance (covariant, contravariant), generic static protocol.
+6. **Operator overloading**: Nạp chồng toán tử một ngôi, hai ngôi, so sánh và toán tử gán tăng cường, kèm quy tắc `NotImplemented`.
+
+## Phần IV — Asynchronous programming
+
+1. **Iterator, generator và classic coroutine**: Iterable so với iterator, `yield`, `yield from`, generator expression, generic iterable, và classic coroutine.
+2. **Khối `with`, `match`, `else`**: Context manager, `contextlib`, pattern matching với `match/case` (cấu trúc, class pattern), và các cách dùng `else` ít người để ý (`for/else`, `try/else`).
+3. **Mô hình đồng thời trong Python**: Tổng quan về thread, process, coroutine, GIL, so sánh tác vụ CPU-bound với I/O-bound.
+4. **Concurrent executor**: Dùng `concurrent.futures` (`ThreadPoolExecutor`, `ProcessPoolExecutor`), `Future`, xử lý tải nhiều file song song, và thanh tiến trình.
+5. **Lập trình bất đồng bộ**: `asyncio`, `async`/`await`, asynchronous iterator và context manager, các pattern như HTTP client/server (dùng `httpx`, FastAPI) và cách tránh block event loop.
+
+## Phần V — Metaprogramming
+
+1. **Thuộc tính động và property**: `__getattr__`, `__setattr__`, `@property`, property factory, xử lý dữ liệu động (ví dụ dữ liệu JSON), thuộc tính và hàm xử lý thuộc tính.
+2. **Attribute descriptor**: Giao thức descriptor (`__get__`, `__set__`, `__set_name__`), descriptor có/không ghi đè, và cách hàm, method, property thực chất hoạt động.
+3. **Class metaprogramming**: Class factory, `__init_subclass__`, class decorator, metaclass, `__prepare__`, và thời điểm chạy mã (import time so với runtime).
+
+---
+
+Bắt đầu thôi nào → [Chapter 1: The Python Data Model](/blog/fluent-python-ch01-data-model).
+
+Post này là draft đang trong quá trình viết, mình sẽ update dần khi đọc xong (Hoặc là không nghahahaa).

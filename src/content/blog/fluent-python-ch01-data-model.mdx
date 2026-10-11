@@ -1,0 +1,291 @@
+---
+title: "Fluent Python - Chapter 1: The Python Data Model"
+summary: "Vì sao Python viết len(x) chứ không phải x.len()."
+postLayout: column
+cover: '@/assets/fluent-python-data-model/cover.png'
+date: '2026-10-11'
+draft: true
+tags: [python]
+---
+
+Đây là chương đầu tiên trong series [Fluent Python](/blog/fluent-python-ch00-index). Chương này nói về **Python Data Model** 
+
+---
+
+## Tổng quan
+
+Một trong những ưu điểm của Python là tính nhất quán (consistency).
+
+Tuy nhiên, nếu anh em học qua một ngôn ngữ Object-oriented (OOP), thì mọi người sẽ cảm thấy kì lạ khi sử dụng `len(collection)` thay vì `collection.len()`. Điểm tưởng chừng kì quặc này chỉ là phần nổi của tảng băng chìm, và khi hiểu đúng nó chính là **chìa khóa** để nắm được mọi thứ mà chúng ta gọi là "Pythonic". Tảng băng ấy có tên là **Python Data Model**, và đó là API mà chúng ta dùng để làm cho các object mình tạo ra hoạt động tốt với những tính năng ngôn ngữ mang tính Python idiomatic nhất.
+
+Anh em có thể xem mô hình này như một bản mô tả về Python với vai trò là một framework. Nó chính thức hoá các interface của những thứ làm nên ngôn ngữ, chẳng hạn như sequence, hàm, iterator, coroutine, class, context manager.
+
+Và khi sử dụng một framework, thứ ta dành nhiều thời gian là viết những method mà framework sẽ gọi. Điều này tương tự khi chúng ta tận dụng Python Data Model để xây dựng các class mới. Python interpreter gọi các special method này để thực hiện những basic operations trên object, và thường được trigger bởi những syntax đặc biệt. Những special method này luôn luôn được viết với hai dấu gạch dưới ở đầu và cuối. Ví dụ, syntax `obj[key]` được hỗ trợ bằng method `__getitem__`. Để lấy giá trị `obj` tại `key`, thì interpreter sẽ gọi `obj.__getitem__(key)`.
+
+```python
+class Bo_bai:
+    def __init__(self):
+        self._cards = ['A', 'K', 'Q', 'J']
+
+    def __len__(self):
+        return len(self._cards)
+
+    def __getitem__(self, vi_tri):
+        return self._cards[vi_tri]
+
+
+deck = Bo_bai()
+len(deck)        # 4            -> gọi deck.__len__()
+deck[0]          # 'A'          -> gọi deck.__getitem__(0)
+deck[1:3]        # ['K', 'Q']   -> slicing cũng hoạt động
+```
+
+Mọi người sẽ thắc mắc vì sao lại là `len(x)` chứ không phải `x.len()`:
+
+- **Nhất quán**: mọi types (`list`, `dict`, `str`, và class do mọi người viết) đều có thể dùng chung cách gọi này.
+- **Hiệu năng**: với các kiểu dựng sẵn như `list` hay `str`, CPython đọc thẳng độ dài từ cấu trúc C bên trong, không cần gọi method Python nên rất nhanh.
+- **Contract rõ ràng**: `len()` đảm bảo kết quả là số nguyên không âm, còn `__len__` là contract để object của bạn tuân theo contract đó.
+
+Chúng ta implement những special method này khi cần object support và interact với những cấu trúc cơ bản của ngôn ngữ, ví dụ như:
+
+- **Collections**: giúp đối tượng hoạt động như list, dict, set. Các phương thức chính: `__len__`, `__getitem__`, `__setitem__`, `__delitem__`, `__contains__`.
+- **Attribute access**: kiểm soát việc đọc, ghi, xóa thuộc tính: `__getattr__`, `__setattr__`, `__delattr__`, `__getattribute__`. Đây cũng là nền tảng của `@property` và descriptor.
+- **Iteration**: cho phép dùng vòng lặp `for`: `__iter__` và `__next__`. Với lặp bất đồng bộ (`async for`) dùng `__aiter__` và `__anext__`.
+- **Operator overloading**: định nghĩa ý nghĩa của `+`, `-`, `*`, `==`, `<`, v.v. cho đối tượng của bạn: `__add__`, `__mul__`, `__eq__`, `__lt__` (giống C++ thôi).
+- **Function and method invocation**: phương thức `__call__` biến đối tượng thành "callable", tức là gọi được như một hàm.
+
+```python
+class Nhan_doi:
+    def __call__(self, x):
+        return x * 2
+
+
+f = Nhan_doi()
+f(5)              # 10 -> gọi f.__call__(5)
+```
+
+- **String representation and formatting**
+  - `__repr__`: biểu diễn rõ ràng, dành cho debug
+  - `__str__`: biểu diễn object sao cho dễ đọc
+  - `__format__`: dùng với `f"{obj:...}"` và `format()`
+  - `__bytes__`: dùng với `bytes(obj)`
+- **Asynchronous programming with await**: phương thức `__await__` cho phép một object được dùng với `await`.
+- **Object creation and destruction**: giống C++ (constructor `__new__`, destructor `__del__`)
+  - `__new__`: tạo ra đối tượng
+  - `__init__`: khởi tạo đối tượng sau khi tạo
+  - `__del__`: được gọi khi đối tượng bị thu hồi (ít dùng, và không nên phụ thuộc vào thời điểm nó chạy)
+- **Managed context using `with` or `async with`**: dùng cho khối `with`, thường để quản lý tài nguyên như file, kết nối, khóa (lock). Cần `__enter__` và `__exit__`. Với `async with` dùng `__aenter__` và `__aexit__`.
+
+---
+
+## Tips: Magic và Dunder
+
+Thuật ngữ *magic method* là cách gọi lóng (slang) của *special method*. Nhưng làm thế nào để nói về một method cụ thể như `__getitem__`? Có cách đọc là "dunder-getitem" từ tác giả kiêm giảng viên Steve Holden. "Dunder" là cách nói tắt của "**du**oble **under**score before and after" (hai dấu gạch dưới ở trước và sau). Đó là lý do các magic method còn được gọi là *dunder method*.
+
+Chương "Lexical Analysis" trong *The Python Language Reference* cảnh báo rằng bất kỳ cách dùng method dạng `__*__` nào, trong bất kỳ context nào, mà không tuân theo cách dùng đã được tài liệu hóa rõ ràng, thì có thể bị break ngay lập tức mà không warning.
+
+**Khó hiểu phải không, giải thích nè.**
+
+### 1. Cách đọc tên phương thức
+
+| Viết | Đọc |
+| --- | --- |
+| `__getitem__` | "dunder-getitem" |
+| `__len__` | "dunder-len" |
+| `__repr__` | "dunder-repr" |
+| `__init__` | "dunder-init" |
+
+Cách đọc này ngắn gọn hơn nhiều so với "gạch dưới gạch dưới getitem gạch dưới gạch dưới". Bạn sẽ nghe cách nói này thường xuyên trong các buổi nói chuyện về Python và trong cộng đồng lập trình viên.
+
+### 2. Ba tên gọi cho cùng một khái niệm
+
+- **Special method**: tên chính thức, dùng trong tài liệu Python.
+- **Dunder method**: cách gọi thân mật, phổ biến trong cộng đồng.
+- **Magic method**: tên lóng, tuy phổ biến nhưng không chính thức.
+
+### 3. Warning
+
+Python "dành riêng" các method có tên dạng `__method__` cho chính ngôn ngữ. Điều này dẫn đến hai quy tắc:
+
+- **Không tự đặt tên dunder mới** cho phương thức của mình, ví dụ `__lam_gi_do__`. Một phiên bản Python tương lai có thể dùng đúng tên đó với ý nghĩa khác, khiến mã của bạn break mà không báo trước.
+- **Chỉ dùng các tên dunder đã được tài liệu hóa**, và dùng đúng theo cách tài liệu mô tả.
+
+```python
+class Vi_du:
+    def __len__(self):           # OK: dunder có trong tài liệu
+        return 3
+
+    def __xin_chao__(self):      # KHÔNG NÊN: tự bịa tên dunder
+        return "hi"
+
+    def xin_chao(self):          # NÊN: đặt tên bình thường
+        return "hi"
+```
+
+---
+
+## A Pythonic Card Deck
+
+```python
+import collections
+
+Card = collections.namedtuple('Card', ['rank', 'suit'])
+
+
+class FrenchDeck:
+    ranks = [str(n) for n in range(2, 11)] + list('JQKA')
+    suits = 'spades diamonds clubs hearts'.split()
+
+    def __init__(self):
+        self._cards = [
+            Card(rank, suit) for suit in self.suits for rank in self.ranks
+        ]
+
+    def __len__(self):
+        return len(self._cards)
+
+    def __getitem__(self, position):
+        return self._cards[position]
+```
+
+### Giải thích chi tiết
+
+**1. `namedtuple` làm gì?**
+
+```python
+Card = collections.namedtuple('Card', ['rank', 'suit'])
+c = Card('7', 'diamonds')
+c              # Card(rank='7', suit='diamonds')  <- repr đẹp, tự động có
+c.rank         # '7'   (truy cập theo tên)
+c[0]           # '7'   (truy cập theo index vì vẫn là tuple)
+```
+
+So với tuple thường `('7', 'diamonds')`, bạn có tên trường dễ đọc; so với viết class như bình thường, bạn không phải tự viết `__init__` và `__repr__`. Nó cũng bất biến (immutable) như tuple.
+
+**2. Các thuộc tính của lớp `FrenchDeck`**
+
+```python
+ranks = [str(n) for n in range(2, 11)] + list('JQKA')
+# ['2', '3', ..., '10', 'J', 'Q', 'K', 'A']  -> 13 giá trị
+
+suits = 'spades diamonds clubs hearts'.split()
+# ['spades', 'diamonds', 'clubs', 'hearts']  -> 4 chất
+```
+
+Đây là **thuộc tính của lớp** (dùng chung cho mọi object), nên truy cập bằng `self.ranks` và `self.suits`.
+
+**3. Phương thức `__init__`**
+
+```python
+self._cards = [
+    Card(rank, suit) for suit in self.suits for rank in self.ranks
+]
+```
+
+Đây là list comprehension có hai vòng lặp lồng nhau: vòng ngoài là `suit`, vòng trong là `rank`. Kết quả là 4 × 13 = **52 lá bài**, xếp theo từng chất: toàn bộ 13 lá chất bích, rồi đến rô, chuồn, cơ.
+
+**4. Hai phương thức đặc biệt**
+
+- `__len__` giúp `len(deck)` trả về 52.
+- `__getitem__` giúp `deck[0]` trả về lá bài đầu tiên, và khi `position` là một slice thì `deck[:3]` cũng hoạt động vì `self._cards` là list.
+
+Vậy ta có nên tạo một method riêng cho việc lấy lá bài ngẫu nhiên không? Câu trả lời là không, vì Python đã có một function để lấy ngẫu nhiên một item từ sequence: `random.choice`.
+
+```python
+from random import choice
+
+choice(deck)    # Card(rank='3', suit='hearts')
+```
+
+Ok ngon, vậy chúng ta đã thấy hai lợi ích của việc dùng special method để tận dụng Python Data Model:
+
+- Người dùng class mà bạn viết ra không cần phải ghi nhớ tên phương thức tùy tiện cho các thao tác chuẩn (làm sao lấy số lượng phần tử,...), chỉ cần `len(object)`.
+- Dễ dàng hưởng lợi từ thư viện chuẩn phong phú của Python và tránh phải suy nghĩ viết lại method khác, ví dụ như hàm `random.choice`.
+
+Nhưng sẽ còn tốt hơn nếu ta để ý điểm này: vì `__getitem__` của ta đã delegate cho toán tử `[]` của `self._cards` nên slicing cũng tự nhiên hoạt động luôn:
+
+```python
+>>> deck[:3]
+[Card(rank='2', suit='spades'), Card(rank='3', suit='spades'),
+ Card(rank='4', suit='spades')]
+>>> deck[12::13]
+[Card(rank='A', suit='spades'), Card(rank='A', suit='diamonds'),
+ Card(rank='A', suit='clubs'), Card(rank='A', suit='hearts')]
+```
+
+Và chỉ bằng việc implement `__getitem__`, `deck` cũng có thể được lặp:
+
+```python
+>>> for card in reversed(deck):
+...     print(card)
+Card(rank='A', suit='hearts')
+Card(rank='K', suit='hearts')
+Card(rank='Q', suit='hearts')
+...
+```
+
+### Giải thích chi tiết
+
+**1. Vì sao chỉ có `__getitem__` mà vẫn lặp được?**
+
+Lớp `FrenchDeck` không hề có `__iter__`. Khi gặp `for card in deck`, Python làm như sau:
+
+1. Tìm `__iter__`. Không có.
+2. Tìm `__getitem__`. Có, nên Python tự tạo một iterator, gọi `deck[0]`, `deck[1]`, `deck[2]`, ... cho đến khi gặp `IndexError` thì dừng.
+
+Đây là cơ chế dự phòng (fallback) dành cho giao thức sequence kiểu cũ. Vì `self._cards[52]` ném ra `IndexError`, vòng lặp kết thúc đúng lúc.
+
+**2. Vì sao `reversed(deck)` hoạt động?**
+
+`reversed()` cần đối tượng là một sequence, tức có `__len__` và `__getitem__`. Python lấy `len(deck)` = 52, rồi gọi `deck[51]`, `deck[50]`, ..., `deck[0]`. Vì lá cuối của danh sách là Át cơ, kết quả bắt đầu bằng Át cơ, rồi K cơ, Q cơ.
+
+**3. Các toán tử khác cũng hoạt động theo**
+
+```python
+>>> Card('Q', 'hearts') in deck
+True
+>>> Card('7', 'beasts') in deck
+False
+```
+
+Toán tử `in` nếu không có `__contains__` thì cũng dùng cơ chế lặp ở trên để duyệt từng lá cho đến khi tìm thấy. Cách này đúng nhưng chậm (O(n)).
+
+Việc lặp thường diễn ra một cách ngầm định (implicit). Ví dụ điển hình: `in` hoạt động với lớp `FrenchDeck` của chúng ta vì nó lặp được.
+
+Ok, loop được, get item cũng được, vậy còn sort và shuffle thì sao?
+
+- Với **sort** thì đơn giản hơn, ta chỉ cần viết một function để xếp hạng các lá bài và tận dụng `sorted`:
+
+```python
+suit_values = dict(spades=3, hearts=2, diamonds=1, clubs=0)
+
+
+def spades_high(card):
+    rank_value = FrenchDeck.ranks.index(card.rank)
+    return rank_value * len(suit_values) + suit_values[card.suit]
+
+
+for card in sorted(deck, key=spades_high):
+    print(card)
+```
+
+- Giờ là **shuffle** (xáo bài): với cách implement hiện tại thì lớp `FrenchDeck` không thể xáo bài vì nó bất biến (immutable): các lá bài và vị trí của chúng không thể thay đổi, trừ khi vi phạm tính đóng gói (encapsulation) và thao tác trực tiếp lên attribute `_cards`. Ta sẽ khắc phục việc đó bằng cách thêm một method `__setitem__` ở phần sau.
+
+---
+
+## Special method được dùng như thế nào
+
+**Điều đầu tiên cần biết về các special method là chúng được thiết kế để trình thông dịch Python gọi, chứ không phải để bạn gọi.** Bạn không viết `my_object.__len__()`. Bạn viết `len(my_object)`, và nếu `my_object` là một thể hiện của lớp do người dùng định nghĩa, Python sẽ gọi method `__len__` mà bạn đã implement.
+
+Nhưng trình thông dịch đi đường tắt khi xử lý các type dựng sẵn như `list`, `str`, `bytearray`, hoặc các phần mở rộng như mảng NumPy. Các tập hợp có kích thước thay đổi của Python được viết bằng C chứa một struct (cấu trúc) tên là `PyVarObject`, trong đó có trường `ob_size` lưu số phần tử của tập hợp. Vì vậy, nếu `my_object` là thể hiện của một trong các kiểu dựng sẵn đó, `len(my_object)` chỉ lấy giá trị của trường `ob_size`, và cách này nhanh hơn nhiều so với việc gọi một phương thức.
+
+Thông thường, việc gọi special method diễn ra ngầm định. Ví dụ, câu lệnh `for i in x:` thực ra gọi `iter(x)`, và hàm này có thể gọi `x.__iter__()` nếu có, hoặc dùng `x.__getitem__()`, như trong ví dụ `FrenchDeck`.
+
+Thông thường code của bạn không nên có nhiều lời gọi trực tiếp đến special method. Trừ khi bạn làm nhiều về metaprogramming, bạn nên implement các special method thường xuyên hơn là gọi chúng tường minh. Phương thức đặc biệt duy nhất mà code người dùng hay gọi trực tiếp là `__init__`, để gọi bộ khởi tạo của class cha trong phần implement `__init__` của bạn. Nếu cần gọi một special method, thường tốt hơn là gọi function dựng sẵn tương ứng (ví dụ `len`, `iter`, `str`, v.v.). Các hàm dựng sẵn này gọi special method, nhưng thường cung cấp thêm các dịch vụ khác và với các type dựng sẵn thì việc này nhanh hơn việc gọi method.
+
+Trong các mục tiếp theo, chúng ta sẽ thấy một số cách dùng quan trọng nhất của special method:
+
+- Mô phỏng các kiểu số (numeric types)
+- Biểu diễn chuỗi của đối tượng
+- Giá trị Boolean của đối tượng
+- Cài đặt các tập hợp (collections)
